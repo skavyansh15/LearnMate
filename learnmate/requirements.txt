@@ -1,0 +1,7 @@
+flask>=3.0
+pymupdf
+python-pptx
+requests
+python-dotenv
+gunicorn
+youtube-transcript-api>=0.6.2
