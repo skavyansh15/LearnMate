@@ -6,7 +6,7 @@ Powered by a lightweight, clean architecture: **HTML5, CSS3, Vanilla JS, Python 
 
 ---
 
-## 🚀 Quickstart (No API Key Required)
+## Quickstart (No API Key Required)
 
 Run the fully offline demo in under 2 minutes:
 
@@ -27,7 +27,7 @@ Open **http://127.0.0.1:5000** in your browser.
 
 ---
 
-## ⚡ Enable Real AI (NVIDIA NIM or Any Provider)
+## Enable Real AI (NVIDIA NIM or Any Provider)
 
 1. Copy `.env.example` to `.env`:
    ```bash
@@ -43,7 +43,7 @@ Open **http://127.0.0.1:5000** in your browser.
 
 ---
 
-## 🎬 What to Try (Judge Walkthrough)
+## What to Try (Judge Walkthrough)
 
 1. **Spoiler-Safe Playback Test**:
    - Open the lecture module.
@@ -63,7 +63,7 @@ Open **http://127.0.0.1:5000** in your browser.
 
 ---
 
-## 🛡️ Core Architecture & Integrity Guarantees
+## Core Architecture & Integrity Guarantees
 
 ```mermaid
 flowchart TD
@@ -95,7 +95,7 @@ flowchart TD
 
 ---
 
-## 🚢 Deployment Guide
+## Deployment Guide
 
 LearnMate uses lightweight JSON persistence organized by anonymous session tokens in `data/users/<uid>/`.
 
@@ -117,7 +117,7 @@ Run behind Nginx with SSL termination. Set `COOKIE_SECURE=1` and ensure the stor
 
 ---
 
-## 🧪 Test Suite
+## Test Suite
 
 Run the full automated test suite:
 
