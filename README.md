@@ -43,7 +43,7 @@ Open **http://127.0.0.1:5000** in your browser.
 
 ---
 
-## 🎬 What to Try (Judge Walkthrough)
+## What to Try (Judge Walkthrough)
 
 1. **Spoiler-Safe Playback Test**:
    - Open the lecture module.
