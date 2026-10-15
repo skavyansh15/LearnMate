@@ -1,0 +1,63 @@
+1
+00:00:00,000 --> 00:00:15,000
+Welcome to this short lesson on Python lists.
+
+2
+00:00:15,000 --> 00:00:30,000
+A list stores many values in one variable, written inside square brackets and separated by commas.
+
+3
+00:00:30,000 --> 00:00:45,000
+Every item in a list has a position called an index.
+
+4
+00:00:45,000 --> 00:01:00,000
+Python starts counting at zero, so fruits of zero is apple, and fruits of one is banana.
+
+5
+00:01:00,000 --> 00:01:15,000
+You can also count from the end using negative indexes.
+
+6
+00:01:15,000 --> 00:01:30,000
+Fruits of minus one gives the last item, which is cherry, without needing to know the length of the list.
+
+7
+00:01:30,000 --> 00:01:45,000
+To add an item at the end, use the append method, for example fruits dot append mango.
+
+8
+00:01:45,000 --> 00:02:00,000
+If you need a specific position, insert takes an index and a value, so fruits dot insert zero kiwi puts kiwi at the front.
+
+9
+00:02:00,000 --> 00:02:15,000
+To delete a value by name use remove, for example fruits dot remove banana.
+
+10
+00:02:15,000 --> 00:02:30,000
+The pop method removes an item by position and also returns it, and with no argument it takes the last item.
+
+11
+00:02:30,000 --> 00:02:45,000
+Slicing gives you part of a list.
+
+12
+00:02:45,000 --> 00:03:00,000
+Writing fruits one colon three starts at index one and stops before index three, so the end index is not included.
+
+13
+00:03:00,000 --> 00:03:15,000
+To visit every item, use a for loop: for fruit in fruits, then print the fruit.
+
+14
+00:03:15,000 --> 00:03:30,000
+The loop variable takes each value in the list, one at a time, from first to last.
+
+15
+00:03:30,000 --> 00:03:45,000
+A list comprehension builds a new list in one line.
+
+16
+00:03:45,000 --> 00:04:00,000
+For example, squares equals x times x for x in range five, which gives zero, one, four, nine, sixteen.
