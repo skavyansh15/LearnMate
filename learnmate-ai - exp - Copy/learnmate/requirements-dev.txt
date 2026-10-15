@@ -1,3 +1,0 @@
-# only needed to re-create the demo course (tools/make_demo.py); also needs ffmpeg installed
-reportlab
-pillow
