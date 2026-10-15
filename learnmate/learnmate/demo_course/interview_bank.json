@@ -1,0 +1,178 @@
+[
+ {
+  "question": "What is a Python list and how do you create one?",
+  "level": "easy",
+  "key_points": [
+   {
+    "name": "stores many values in one variable",
+    "terms": [
+     "many",
+     "multiple",
+     "several",
+     "collection",
+     "values",
+     "items"
+    ]
+   },
+   {
+    "name": "square brackets",
+    "terms": [
+     "bracket",
+     "[]",
+     "["
+    ]
+   },
+   {
+    "name": "items separated by commas",
+    "terms": [
+     "comma"
+    ]
+   }
+  ]
+ },
+ {
+  "question": "How does indexing work in a list?",
+  "level": "easy",
+  "key_points": [
+   {
+    "name": "counting starts at zero",
+    "terms": [
+     "zero",
+     "0"
+    ]
+   },
+   {
+    "name": "index is the position of an item",
+    "terms": [
+     "position",
+     "index"
+    ]
+   },
+   {
+    "name": "negative index counts from the end",
+    "terms": [
+     "negative",
+     "-1",
+     "end",
+     "last"
+    ]
+   }
+  ]
+ },
+ {
+  "question": "How do you add items to a list?",
+  "level": "easy",
+  "key_points": [
+   {
+    "name": "append adds at the end",
+    "terms": [
+     "append"
+    ]
+   },
+   {
+    "name": "insert adds at a chosen position",
+    "terms": [
+     "insert"
+    ]
+   },
+   {
+    "name": "position or index is given to insert",
+    "terms": [
+     "position",
+     "index"
+    ]
+   }
+  ]
+ },
+ {
+  "question": "Explain the difference between remove and pop.",
+  "level": "hard",
+  "key_points": [
+   {
+    "name": "remove deletes by value",
+    "terms": [
+     "value",
+     "name"
+    ]
+   },
+   {
+    "name": "pop removes by position",
+    "terms": [
+     "position",
+     "index"
+    ]
+   },
+   {
+    "name": "pop returns the removed item",
+    "terms": [
+     "return",
+     "returns",
+     "gives back"
+    ]
+   }
+  ]
+ },
+ {
+  "question": "What does fruits[1:3] return, and why?",
+  "level": "hard",
+  "key_points": [
+   {
+    "name": "items at index 1 and 2",
+    "terms": [
+     "index 1",
+     "1 and 2",
+     "second and third"
+    ]
+   },
+   {
+    "name": "start index is included",
+    "terms": [
+     "included",
+     "inclusive",
+     "includes"
+    ]
+   },
+   {
+    "name": "end index is not included",
+    "terms": [
+     "not included",
+     "excluded",
+     "exclusive",
+     "stops before",
+     "up to but"
+    ]
+   }
+  ]
+ },
+ {
+  "question": "What is a list comprehension and when would you use it?",
+  "level": "hard",
+  "key_points": [
+   {
+    "name": "builds a new list",
+    "terms": [
+     "new list",
+     "build",
+     "create"
+    ]
+   },
+   {
+    "name": "in one line",
+    "terms": [
+     "one line",
+     "single line",
+     "short",
+     "concise"
+    ]
+   },
+   {
+    "name": "uses an expression with a for loop inside brackets",
+    "terms": [
+     "for",
+     "loop",
+     "expression"
+    ]
+   }
+  ]
+ }
+]
