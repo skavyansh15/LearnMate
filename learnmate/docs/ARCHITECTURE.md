@@ -1,80 +1,126 @@
-# LearnMate Enterprise Architecture
+# Architecture and System Design
 
-LearnMate AI is an **API-driven, modular learning microservice** designed for immediate standalone operation and clean integration into enterprise Learning Management Systems (LMS) such as Canvas, Moodle, and Blackboard.
+LearnMate is an API-driven learning microservice that enforces timestamp-restricted retrieval over recorded lectures and supporting academic documents.
 
 ---
 
-## 1. System Architecture Overview
+## 1. System Overview
 
 ```mermaid
 flowchart TD
-    subgraph Client & LMS Ingestion Layer
-        LMS["LMS Platform<br/>(Canvas / Moodle / Blackboard)"] -->|LTI 1.3 Launch / Bearer Token| Gateway["API Gateway / HTTPS Ingress"]
-        Browser["Learner Browser<br/>(HTML5 / Video Player / Tutor Chat)"] -->|Fetch API + X-Requested-With| Gateway
+    subgraph ClientLayer ["Client & Ingress Layer"]
+        Browser["Learner Browser<br/>HTML5 Player + Chat UI"]
+        LMS["LMS Platform<br/>Canvas / Moodle / Blackboard"]
     end
 
-    subgraph Service Application Layer [Flask Microservice]
-        Gateway --> Routes["Flask API Router (app.py)"]
-        Routes --> SessionMgr["Session & LMS Identity Manager"]
-        Routes --> Ingest["Ingestion Engine (ingest.py)"]
-        Routes --> Assistant["Time-Gated Assistant (assistant.py)"]
-        Routes --> Interview["Adaptive Interview Core (interview.py)"]
+    subgraph ServiceLayer ["Application Microservice (Flask + Gunicorn)"]
+        Router["API Gateway / Router<br/>app.py"]
+        Ingest["Ingestion Engine<br/>ingest.py"]
+        Assistant["Assistant Core<br/>assistant.py"]
+        Interview["Interview State Machine<br/>interview.py"]
     end
 
-    subgraph RAG & Grounding Pipeline
-        Assistant --> TimeGate["Strict Time Gate Filter (unlock <= t)"]
-        TimeGate --> Retrieval["BM25 Inverted-Index Engine (search.py)"]
-        Retrieval --> Context["Evidence Composer [1]..[n]"]
-        Context --> Verifier["Post-Generation Citation Verifier"]
+    subgraph RetrievalLayer ["Grounded RAG Pipeline"]
+        TimeGate["Strict Time Gate Filter<br/>unlock_timestamp <= current_time"]
+        SearchIndex["BM25 Keyword Index<br/>search.py"]
+        ContextAssembler["Evidence Assembler<br/>Sliding Window + Top-K"]
+        CitationVerifier["Citation Integrity Verifier"]
     end
 
-    subgraph Intelligence & Model Provider Layer
-        Verifier --> LLM["LLM Client Interface (llm.py)"]
-        LLM -.-> NIM["NVIDIA NIM Inference (openai/gpt-oss-20b)"]
-        LLM -.-> Bedrock["Amazon Bedrock (Claude 3.5 / Llama 3)"]
+    subgraph PersistenceLayer ["Persistence Adapter"]
+        Store["Store Interface<br/>store.py"]
+        Postgres[("Supabase PostgreSQL<br/>Production Multi-User Store")]
+        LocalJSON[("Local Partitioned Store<br/>Offline / Dev Mode")]
     end
 
-    subgraph Persistence Layer
-        SessionMgr --> Store["Store Interface (store.py)"]
-        Store --> LocalStore[("Local Partitioned JSON Store")]
-        Store -.-> DDB[("AWS DynamoDB + S3 (Cloud Scale)")]
+    subgraph ModelLayer ["Inference Providers"]
+        NIM["NVIDIA NIM Endpoint<br/>openai/gpt-oss-20b"]
+        DemoEngine["Deterministic Sentence Matcher<br/>Offline Demo Mode"]
     end
+
+    Browser -->|HTTP + X-Requested-With| Router
+    LMS -->|LTI Launch + Grade Sync| Router
+
+    Router --> Ingest
+    Router --> Assistant
+    Router --> Interview
+    Router --> Store
+
+    Store --> Postgres
+    Store --> LocalJSON
+
+    Assistant --> TimeGate
+    TimeGate --> SearchIndex
+    SearchIndex --> ContextAssembler
+    ContextAssembler --> CitationVerifier
+
+    CitationVerifier --> NIM
+    CitationVerifier --> DemoEngine
 ```
 
 ---
 
-## 2. AWS-First Enterprise Migration Blueprint
+## 2. Ingestion and Retrieval Pipeline
 
-The hackathon architecture encourages an **AWS-first design**. Because LearnMate was built with strict interface boundaries, every internal module maps directly to an AWS enterprise service without altering business logic:
+### Document and Caption Ingestion
+1. Video captions are loaded from user-uploaded `.srt` or `.vtt` files, or automatically extracted via the YouTube Transcript API. Captions are segmented into semantic time-stamped cues.
+2. Documents (.pdf, .pptx, .docx, .txt) are parsed page-by-page or slide-by-slide:
+   - PDFs are extracted via PyMuPDF (`fitz`), preserving physical page boundaries.
+   - Slide decks are parsed using `python-pptx`, capturing slide titles, body shapes, notes frames, and table cells.
+   - Word documents (`.docx`) are extracted through XML paragraph and table run inspection.
+3. Every chunk records metadata: `type`, `ref` (page number, slide number, or time boundary), `label`, and `unlock` timestamp.
 
-| LearnMate Component | Local Implementation (Current) | AWS Enterprise Target | Why This Service Fits |
-|:---|:---|:---|:---|
-| **Video & Document Storage** | `data/users/<uid>/media/` | **Amazon S3** | Encrypted, durable object storage with pre-signed URLs for media playback and syllabus uploads. |
-| **Speech-to-Text Transcripts** | `youtube-transcript-api` / Local `.srt` | **Amazon Transcribe** | Generates timestamped word-level cues directly from uploaded audio/video files. |
-| **Time-Gated Search Index** | BM25 Inverted Index (`search.py`) | **Amazon OpenSearch Serverless** | Scalable vector and BM25 hybrid search with native timestamp filter queries. |
-| **Learner State & Grade Store** | Partitioned JSON files (`store.py`) | **Amazon DynamoDB** | Single-digit millisecond latency for concurrent student sessions, quiz scores, and watch positions. |
-| **Inference Engine** | NVIDIA NIM Client (`llm.py`) | **Amazon Bedrock** | Serverless foundation model access (Claude 3.5 Sonnet / Llama 3) with zero infrastructure management. |
-| **Microservice Compute** | Gunicorn / Flask Container | **AWS ECS Fargate / Lambda** | Auto-scaling containerized execution responding to LMS traffic surges. |
-| **Telemetry & Observability** | Python `logging` module | **Amazon CloudWatch** | Centralized logs, error rate alerts, and inference latency dashboards. |
-| **Concept Relationship Graph** | Concept comparison (`assistant.py`) | **Amazon Neptune** | Prerequisite concept dependency trees and knowledge graph navigation. |
+### Strict Playhead Time-Gating
+Retrieval enforces timestamp isolation prior to searching:
+- When a user asks a question at playback time `t`, chunks with `unlock > t` are pruned before reaching the BM25 index.
+- Future transcript lines and unviewed document sections never enter the language model context window.
+- If the BM25 index does not retrieve evidence meeting the keyword overlap threshold, the system immediately returns a structured refusal (`"status": "not_found"`), avoiding unnecessary inference latency and hallucination.
 
----
-
-## 3. LMS Integration Architecture
-
-LearnMate features native LMS integration routes:
-
-1. **`POST /api/lms/launch`**:
-   - Accepts LMS learner launch payloads (`lms_user_id`, `lms_course_id`, `role`).
-   - Automatically scopes learner progress, preventing cross-tenant leakage between university sections.
-2. **`GET /api/lms/export/<course_id>`**:
-   - Exports gradebook sync payloads including lecture completion percentages, quiz scores, and adaptive interview competencies.
-   - Compatible with Canvas Gradebook API and LTI Advantage Assignment and Grade Services (AGS).
+### Citation Integrity Verification
+Post-generation verification validates every citation tag (such as `[1]`, `[2]`) in the model response against the retrieved context snippets:
+- Citations referring to sources not in the retrieved set are stripped.
+- Citations are converted to structured metadata objects linking directly to video seek timestamps or document page numbers.
 
 ---
 
-## 4. Concurrency & Security Model
+## 3. Persistence and Multi-User Concurrency
 
-- **Zero-Storage Leaks**: All student data is isolated by user token in partitioned storage paths.
-- **CSRF & Traversal Defense**: Enforces custom request headers (`X-Requested-With: fetch`) and strict regex validation on user identifiers.
-- **Process Concurrency**: Gunicorn thread worker model (`--workers 1 --threads 4`) prevents race conditions while serving multiple concurrent learners.
+### Dual-Mode Persistence Layer (`store.py`)
+LearnMate implements an abstract key-value and object store:
+- **Cloud Mode (`DATABASE_URL` configured)**: Automatically establishes a pooled connection to PostgreSQL (e.g. Supabase or Neon) and maintains the table `learnmate_kv`. Courses, document records, interview states, and quiz scores persist permanently across server restarts or ephemeral container replacement.
+- **Local Mode (`DATABASE_URL` omitted)**: Falls back to thread-locked JSON files under `data/users/<uid>/`. Writes use reentrant locks (`threading.RLock`) and atomic file replacement (`.tmp` write followed by `os.replace`).
+
+### Session Scoping and Rate Limiting
+- Each browser session receives an encrypted, HTTP-only cookie holding an anonymous user identifier (`uid`).
+- Token-bucket rate limiting enforces a maximum of 30 requests per minute per user.
+- Daily AI usage is capped at 100 calls per user, preventing automated quota exhaustion.
+- Gunicorn runs with multiple worker processes to handle concurrent student sessions.
+
+---
+
+## 4. AWS-First Enterprise Migration Blueprint
+
+Every module in LearnMate uses strict interface boundaries, allowing zero-downtime migration to native AWS cloud services:
+
+| Component | Current Implementation | AWS Target Service | Architectural Rationale |
+| :--- | :--- | :--- | :--- |
+| **Media Storage** | Local `/media/` filesystem | **Amazon S3** | Durable, encrypted object storage with pre-signed URLs for media streaming and syllabus uploads. |
+| **Speech-to-Text** | `youtube-transcript-api` / local `.srt` | **Amazon Transcribe** | Converts instructor speech in uploaded videos into word-level timestamped captions. |
+| **Search Engine** | In-memory BM25 index (`search.py`) | **Amazon OpenSearch Serverless** | Scalable hybrid keyword and vector retrieval with native timestamp filter expressions. |
+| **User State** | PostgreSQL / local JSON (`store.py`) | **Amazon DynamoDB** | Single-digit millisecond latency key-value storage partitioned by student identity. |
+| **Inference** | NVIDIA NIM API (`llm.py`) | **Amazon Bedrock** | Serverless foundation model execution (Claude 3.5 Sonnet / Llama 3) with enterprise security boundaries. |
+| **Compute** | Gunicorn / Flask container | **AWS ECS Fargate / Lambda** | Auto-scaling containerized microservice execution matching lecture schedule spikes. |
+| **Observability** | Structured Python logging | **Amazon CloudWatch** | Aggregated application logs, error tracing, and model latency dashboards. |
+| **Concept Graph** | Concept comparison module | **Amazon Neptune** | Graph database for managing prerequisite concept trees and learning dependency paths. |
+
+---
+
+## 5. Learning Management System (LMS) Integration
+
+LearnMate provides direct compatibility routes for university LMS platforms:
+1. **LTI 1.3 Launch Handler (`POST /api/lms/launch`)**:
+   - Ingests learner launch tokens containing student identifiers, course codes, and roles.
+   - Isolates learner data by institutional tenant, preventing cross-course leakage.
+2. **Gradebook Sync Handler (`GET /api/lms/export/<course_id>`)**:
+   - Outputs completion percentages, quiz scores, and interview performance metrics.
+   - Directly maps to Canvas, Moodle, and Blackboard Gradebook APIs.
