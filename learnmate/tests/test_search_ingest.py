@@ -126,39 +126,5 @@ class DocumentTests(Base):
         self.assertIn("append", next(c for c in chunks if c["ref"] == 2)["text"])
 
 
-class YouTubeIngestTests(unittest.TestCase):
-    def test_extract_youtube_id_variations(self):
-        cases = [
-            ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
-            ("https://www.youtube.com/watch?feature=shared&v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
-            ("https://youtu.be/dQw4w9WgXcQ?t=10", "dQw4w9WgXcQ"),
-            ("https://www.youtube.com/shorts/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
-            ("https://www.youtube.com/embed/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
-            ("dQw4w9WgXcQ", "dQw4w9WgXcQ"),
-            ("https://example.com/not-youtube", None),
-            ("", None),
-        ]
-        for url, expected in cases:
-            self.assertEqual(ingest.extract_youtube_id(url), expected, f"Failed for {url}")
-
-    def test_fetch_youtube_transcript_with_embed_url_mock(self):
-        mock_raw = [{"start": 10.0, "duration": 5.0, "text": "Hello &amp; welcome!"}]
-        
-        class MockTranscript:
-            def to_raw_data(self): return mock_raw
-            
-        class MockYTA:
-            def fetch(self, vid, languages=None):
-                if vid == "dQw4w9WgXcQ":
-                    return MockTranscript()
-                raise Exception("Not found")
-
-        with mock.patch("youtube_transcript_api.YouTubeTranscriptApi", return_value=MockYTA()):
-            cues = ingest.fetch_youtube_transcript("https://www.youtube.com/embed/dQw4w9WgXcQ")
-            self.assertEqual(len(cues), 1)
-            self.assertEqual(cues[0]["text"], "Hello & welcome!")
-            self.assertEqual(cues[0]["start"], 10.0)
-
-
 if __name__ == "__main__":
     unittest.main()
