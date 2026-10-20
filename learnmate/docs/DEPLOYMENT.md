@@ -1,21 +1,95 @@
-# Deployment guide (Render, free tier) - not yet performed
+# Production Deployment Guide
 
-Nothing here has been deployed or tested on a host. Do a dry run before the demo.
+This guide covers deploying LearnMate to a cloud environment using Render (Web Service) and Supabase (Serverless PostgreSQL).
 
-1. Push the project to GitHub (`.env` and `data/` are git-ignored; the demo video is ~4.5 MB and is included).
-2. Render -> **New Web Service** -> your repo. Runtime **Python 3.11 or 3.12**.
-3. Build command: `pip install -r requirements.txt`
-4. Start command: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 60` (also in `Procfile`).
-   Keep **one worker**: rate limits and the file lock live inside the process.
-5. Environment variables (Render dashboard -> Environment):
-   - `SECRET_KEY` = long random text (required; otherwise everyone is logged out on each restart)
-   - `COOKIE_SECURE` = `1`
-   - `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` (optional: skip them to run the public demo in demo mode)
-   - `DAILY_AI_CALLS` (e.g. `30`) to cap spending per visitor
-6. Open the URL, run the demo script from the README, check `/api/health`.
+---
 
-**Storage warning:** free instances have a temporary disk, so uploaded courses disappear on restart/redeploy. For a real deployment attach a persistent disk and set `DATA_DIR` to it. The demo course is part of the repo and always available.
+## 1. Prerequisites
 
-**Cost safety:** set a spending limit in your AI provider's console as well; the app's limits are per visitor, not global.
+- A GitHub account with the LearnMate repository.
+- A free Render account (https://render.com).
+- A free Supabase account (https://supabase.com).
+- An NVIDIA NIM API key (or OpenAI-compatible API key).
 
-**Other hosts** (Railway, PythonAnywhere, a VPS): any host that runs `gunicorn app:app` works; serve over HTTPS and set the same variables.
+---
+
+## 2. Database Setup (Supabase)
+
+Render's free tier uses an ephemeral filesystem. Attaching a free Supabase PostgreSQL database ensures that user courses, uploaded notes, quizzes, and progress persist permanently across restarts.
+
+1. Log in to [Supabase](https://supabase.com) and click **New Project**.
+   - Project Name: `learnmate`
+   - Database Password: Create and securely save a strong password.
+   - Region: Choose a region geographically close to your target users.
+2. Once provisioned, navigate to **Project Settings** (gear icon) -> **Database**.
+3. Under **Connection string**, select the **URI** tab.
+4. Copy the connection string. It will look like:
+   ```text
+   postgresql://postgres.[project-ref]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:5432/postgres
+   ```
+5. Replace `[YOUR-PASSWORD]` with the database password set in step 1.
+
+---
+
+## 3. Web Service Deployment (Render)
+
+1. Log in to [Render](https://render.com) and click **New +** -> **Web Service**.
+2. Select **Build and deploy from a Git repository** and connect your `LearnMate` repository.
+3. Configure service parameters:
+   - **Name**: `learnmate` (or your preferred service name)
+   - **Region**: Select a region matching or near your Supabase database.
+   - **Branch**: `main`
+   - **Root Directory**:
+     - Leave **blank** if `app.py` is located at the repository root.
+     - Set to `learnmate` if your repository has a nested folder structure.
+   - **Runtime**: `Python 3`
+   - **Build Command**:
+     ```bash
+     pip install -r requirements.txt
+     ```
+   - **Start Command**:
+     ```bash
+     gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+     ```
+   - **Instance Type**: Select **Free** ($0/month).
+
+---
+
+## 4. Environment Variables
+
+In the Render service dashboard, open the **Environment** tab and define the following variables:
+
+| Key | Value | Purpose |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | `postgresql://postgres...` | Supabase connection URI for permanent storage |
+| `LLM_API_KEY` | `nvapi-...` | Provider API key for live LLM inference |
+| `LLM_BASE_URL` | `https://integrate.api.nvidia.com/v1` | NVIDIA NIM OpenAI-compatible endpoint |
+| `LLM_MODEL` | `openai/gpt-oss-20b` | Target inference model |
+| `SECRET_KEY` | `64-character random hex string` | Session cookie encryption key |
+| `COOKIE_SECURE` | `1` | Enforces HTTPS-only cookies |
+| `PYTHONUNBUFFERED` | `1` | Ensures immediate stdout streaming in Render logs |
+| `DAILY_AI_CALLS` | `100` | Per-user daily AI call budget |
+| `RATE_PER_MIN` | `30` | Per-user request rate limit |
+
+---
+
+## 5. Verification and Health Check
+
+Once the deployment build completes and the service status displays **Live**:
+
+1. **Verify Health Endpoint**:
+   Navigate to `https://<your-service-name>.onrender.com/api/health`.
+   Expected response:
+   ```json
+   {"status": "ok"}
+   ```
+2. **Verify Database Initialization**:
+   Check your Render logs. On the initial request, `store.py` connects to Supabase and automatically creates the table `learnmate_kv`.
+3. **Verify Interactive Playback**:
+   Open the application root `https://<your-service-name>.onrender.com/`. Verify that the bundled sample lecture plays, the video time-gate restricts questions asked early in the lecture, and document downloads operate correctly.
+
+---
+
+## 6. Cold Starts on Free Tier
+
+Render free tier instances sleep after 15 minutes of inactivity. The first request after a period of dormancy takes approximately 30 to 50 seconds while the container spins up. Subsequent requests respond with normal low latency.
