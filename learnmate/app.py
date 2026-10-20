@@ -53,19 +53,9 @@ def create_app():
         if not url:
             return None, None
         url = url.strip()
-        # YouTube matchers (standard watch, short links, embed, shorts, mobile, v)
-        yt_patterns = [
-            r"(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]+)",
-            r"(?:https?:\/\/)?youtu\.be\/([a-zA-Z0-9_-]+)",
-            r"(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]+)",
-            r"(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]+)",
-            r"(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/v\/([a-zA-Z0-9_-]+)"
-        ]
-        for p in yt_patterns:
-            m = re.search(p, url)
-            if m:
-                video_id = m.group(1)
-                return "youtube", f"https://www.youtube.com/embed/{video_id}"
+        yt_id = ingest.extract_youtube_id(url)
+        if yt_id:
+            return "youtube", f"https://www.youtube.com/embed/{yt_id}"
         return "direct", url
 
     @app.errorhandler(UserError)
