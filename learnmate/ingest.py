@@ -39,77 +39,35 @@ def parse_subtitles(text):
     return cues
 
 
-def extract_youtube_id(url_or_id):
-    """Extract standard 11-char YouTube video ID from any format:
-    - https://www.youtube.com/watch?v=dQw4w9WgXcQ
-    - https://www.youtube.com/watch?feature=shared&v=dQw4w9WgXcQ
-    - https://youtu.be/dQw4w9WgXcQ
-    - https://www.youtube.com/embed/dQw4w9WgXcQ
-    - https://www.youtube.com/shorts/dQw4w9WgXcQ
-    - dQw4w9WgXcQ
-    """
-    if not url_or_id:
-        return None
-    url_or_id = str(url_or_id).strip()
-    m = re.search(r"(?:v=|\/embed\/|\/shorts\/|youtu\.be\/|^)([a-zA-Z0-9_-]{11})(?:[?&/]|$)", url_or_id)
-    return m.group(1) if m else None
-
-
-def fetch_youtube_transcript(video_id_or_url):
+def fetch_youtube_transcript(video_id):
     """Automatically fetch YouTube video subtitles using youtube_transcript_api.
-    Accepts raw video ID or any YouTube URL format.
     Returns [{'start', 'end', 'text'}]. Returns empty list if unavailable."""
-    video_id = extract_youtube_id(video_id_or_url)
     if not video_id:
         return []
     try:
-        import html
         from youtube_transcript_api import YouTubeTranscriptApi
         yta = YouTubeTranscriptApi()
         raw_list = None
-        # 1. Try fetching English or preferred language first
+        # Try fetching English or preferred language first
         try:
             raw_list = yta.fetch(video_id, languages=("en", "en-US", "en-GB")).to_raw_data()
         except Exception:
-            raw_list = None
-
-        # 2. Fall back to listing any available transcripts (auto-generated, manual, or translatable)
-        if not raw_list:
-            try:
-                transcript_list = yta.list(video_id)
-                target = None
-                # Check for any English transcript first
-                for t in transcript_list:
-                    if t.language_code.startswith("en"):
-                        target = t
+            # Fall back to listing any available transcripts (auto-generated or manual)
+            transcripts = yta.list(video_id)
+            for t in transcripts:
+                try:
+                    raw_list = t.fetch().to_raw_data()
+                    if raw_list:
                         break
-                # Otherwise select first available transcript
-                if not target:
-                    for t in transcript_list:
-                        target = t
-                        break
-                if target:
-                    # Translate to English if not in English and translation is supported
-                    if not target.language_code.startswith("en") and getattr(target, "is_translatable", False):
-                        try:
-                            raw_list = target.translate("en").fetch().to_raw_data()
-                        except Exception:
-                            raw_list = target.fetch().to_raw_data()
-                    else:
-                        raw_list = target.fetch().to_raw_data()
-            except Exception:
-                raw_list = None
-
+                except Exception:
+                    continue
         if not raw_list:
             return []
-
         cues = []
         for item in raw_list:
             start = float(item.get("start", 0.0))
             duration = float(item.get("duration", 0.0))
             text = str(item.get("text", "")).strip()
-            # Unescape HTML entities (&amp;, &#39;, &quot;, etc.)
-            text = html.unescape(text)
             # Clean bracketed music/noise notations like [Music], [Applause]
             cleaned_text = re.sub(r"^\[.*?\]$", "", text).strip()
             if cleaned_text:
