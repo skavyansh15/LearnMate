@@ -33,22 +33,162 @@ async function api(path, { method = "GET", json, form } = {}) {
 }
 const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message); } };
 
-// ---------- answers with clickable citations --------------------------------
+// ---------- answers with clickable citations & markdown formatting --------------------------------
 function jump(src) {
-  if (src.time !== null && src.time !== undefined && state.video) { state.video.currentTime = src.time; state.video.play(); }
+  if (!src || src.time === null || src.time === undefined) return;
+  if (state.video) {
+    state.video.currentTime = src.time;
+    state.video.play();
+  } else if (state.ytPlayer && typeof state.ytPlayer.seekTo === "function") {
+    try {
+      state.ytPlayer.seekTo(src.time, true);
+      state.ytPlayer.playVideo();
+    } catch (e) {}
+  }
 }
+
+function renderInline(str, sourcesByN) {
+  const tokenRegex = /((?<![\w)])\[\d+\]|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  const parts = str.split(tokenRegex);
+  const nodes = [];
+  for (const part of parts) {
+    if (!part) continue;
+    const citeMatch = part.match(/^\[(\d+)\]$/);
+    if (citeMatch) {
+      const s = sourcesByN[citeMatch[1]];
+      nodes.push(s ? el("button", { class: "cite", type: "button", title: s.label, onclick: () => jump(s) }, String(s.n)) : part);
+      continue;
+    }
+    if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
+      nodes.push(el("code", { class: "md-code" }, part.slice(1, -1)));
+      continue;
+    }
+    if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
+      nodes.push(el("b", { class: "md-bold" }, part.slice(2, -2)));
+      continue;
+    }
+    if (part.startsWith("*") && part.endsWith("*") && part.length >= 2) {
+      nodes.push(el("em", { class: "md-italic" }, part.slice(1, -1)));
+      continue;
+    }
+    nodes.push(part);
+  }
+  return nodes;
+}
+
+function formatMarkdown(rawText, sourcesByN) {
+  const container = el("div", { class: "md-body" });
+  const lines = (rawText || "").split(/\r?\n/);
+  let currentList = null;
+  let listType = null;
+  let inCodeBlock = false;
+  let codeBlockLines = [];
+
+  const flushList = () => {
+    if (currentList) {
+      container.append(currentList);
+      currentList = null;
+      listType = null;
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("```")) {
+      flushList();
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeBlockLines = [];
+      } else {
+        inCodeBlock = false;
+        container.append(el("pre", { class: "md-pre" }, el("code", { class: "md-code-block" }, codeBlockLines.join("\n"))));
+        codeBlockLines = [];
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeBlockLines.push(line);
+      continue;
+    }
+
+    if (!trimmed) {
+      flushList();
+      continue;
+    }
+
+    // Markdown Headings: #, ##, ###, ####
+    const hMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (hMatch) {
+      flushList();
+      const level = hMatch[1].length;
+      const tag = level <= 2 ? "h3" : "h4";
+      container.append(el(tag, { class: "md-heading" }, ...renderInline(hMatch[2], sourcesByN)));
+      continue;
+    }
+
+    // Bullet points: - item or * item
+    const ulMatch = trimmed.match(/^[\*\-]\s+(.*)$/);
+    if (ulMatch) {
+      if (listType !== "ul") {
+        flushList();
+        currentList = el("ul", { class: "md-ul" });
+        listType = "ul";
+      }
+      currentList.append(el("li", { class: "md-li" }, ...renderInline(ulMatch[1], sourcesByN)));
+      continue;
+    }
+
+    // Numbered list: 1. item
+    const olMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+    if (olMatch) {
+      if (listType !== "ol") {
+        flushList();
+        currentList = el("ol", { class: "md-ol" });
+        listType = "ol";
+      }
+      currentList.append(el("li", { class: "md-li" }, ...renderInline(olMatch[2], sourcesByN)));
+      continue;
+    }
+
+    // Regular paragraph
+    flushList();
+    container.append(el("p", { class: "md-p" }, ...renderInline(line, sourcesByN)));
+  }
+  flushList();
+  if (inCodeBlock && codeBlockLines.length) {
+    container.append(el("pre", { class: "md-pre" }, el("code", { class: "md-code-block" }, codeBlockLines.join("\n"))));
+  }
+  return container;
+}
+
 function answerBlock(d) {
-  const by = Object.fromEntries(d.sources.map(s => [s.n, s]));
-  const parts = d.answer.split(/((?<![\w)])\[\d+\])/).map(p => {
-    const m = p.match(/^\[(\d+)\]$/);
-    if (!m) return p;
-    const s = by[m[1]];
-    return s ? el("button", { class: "cite", type: "button", title: s.label, onclick: () => jump(s) }, String(s.n)) : "";
-  });
-  const srcs = d.sources.map(s => el("button", { class: "src", type: "button", onclick: () => jump(s) },
-    el("b", {}, `[${s.n}] ${s.label}`), el("span", {}, s.snippet)));
-  return [el("span", {}, parts), ...srcs, d.warning ? el("small", { class: "warn" }, d.warning) : null,
-    d.mode === "demo" && d.status === "ok" ? el("small", {}, "Demo mode: text taken directly from the course.") : null].filter(Boolean);
+  const by = Object.fromEntries((d.sources || []).map(s => [s.n, s]));
+  const formattedContent = formatMarkdown(d.answer || "", by);
+
+  let sourcesContainer = null;
+  if (d.sources && d.sources.length > 0) {
+    const pills = d.sources.map(s => el("button", {
+      class: "src-pill",
+      type: "button",
+      title: `Jump to ${s.label}: "${s.snippet || ""}"`,
+      onclick: () => jump(s)
+    },
+      el("span", { class: "src-pill-tag" }, `[${s.n}] ${s.label}`),
+      el("span", { class: "src-pill-text" }, s.snippet ? `"${s.snippet}"` : "")
+    ));
+    sourcesContainer = el("div", { class: "sources-tray" },
+      el("span", { class: "sources-label" }, "Verified Citations:"),
+      ...pills
+    );
+  }
+
+  return [
+    formattedContent,
+    sourcesContainer,
+    d.warning ? el("small", { class: "warn" }, d.warning) : null,
+    d.mode === "demo" && d.status === "ok" ? el("small", {}, "Demo mode: text taken directly from the course.") : null
+  ].filter(Boolean);
 }
 
 function chat(scope, getTime) {
@@ -123,12 +263,22 @@ function quizUI(d) {
   return el("div", {}, d.warning ? el("small", { class: "warn" }, d.warning) : null, boxes, submit, el("h3", {}, result));
 }
 
-function studyTab() {
+function studyTab(now) {
   const out = el("div"); const course = state.course;
   const hasVideoCues = course.has_video && course.duration > 0;
-  const scopeSel = el("select", { "aria-label": "Study material" }, el("option", { value: hasVideoCues ? "video" : "docs" }, hasVideoCues ? "Video watched so far" : "My documents"));
-  if (hasVideoCues && course.documents.length && !course.demo) scopeSel.append(el("option", { value: "docs" }, "My documents"));
-  const base = () => ({ course_id: course.id, scope: scopeSel.value, current_time: (scopeSel.value === "video" && state.video) ? state.video.currentTime : 0 });
+  const scopeSel = el("select", { "aria-label": "Study material" }, el("option", { value: hasVideoCues ? "video" : "docs" }, hasVideoCues ? "Video watched so far" : "Course documents"));
+  if (hasVideoCues && course.documents.length) scopeSel.append(el("option", { value: "docs" }, "Course documents"));
+  
+  const getStudyTime = () => {
+    if (scopeSel.value !== "video") return 0;
+    const current = now ? now() : 0;
+    if (current > 0) return current;
+    if (course.progress && course.progress.max_position > 0) return course.progress.max_position;
+    if (state.currentTime > 0) return state.currentTime;
+    return course.duration || 0;
+  };
+  
+  const base = () => ({ course_id: course.id, scope: scopeSel.value, current_time: getStudyTime() });
   const run = (btn, label, fn) => guard(async () => {
     btn.disabled = true; out.replaceChildren(el("p", { class: "hint" }, "Working on " + label + "..."));
     try { await fn(); } catch (e) { out.replaceChildren(); throw e; } finally { btn.disabled = false; }
@@ -366,9 +516,12 @@ async function showCourse(id, openTab = "Ask") {
                     renderYTFallback(vidContainer, c);
                   }
                 },
-                onReady: () => {}
+                onReady: () => {
+                  state.ytPlayer = ytPlayer;
+                }
               }
             });
+            state.ytPlayer = ytPlayer;
             clearInterval(ytPoll);
             ytPoll = setInterval(() => {
               const curr = now();
@@ -452,7 +605,7 @@ async function showCourse(id, openTab = "Ask") {
   const open = tabObj => {
     bar.querySelectorAll("button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.id === tabObj.id)));
     const chatScope = (tabObj.id === "Ask" && hasVideoCues) ? "video" : "docs";
-    body.replaceChildren(tabObj.id === "Ask" ? chat(chatScope, now) : tabObj.id === "Study" ? studyTab() : tabObj.id === "Documents" ? docsTab() : interviewTab());
+    body.replaceChildren(tabObj.id === "Ask" ? chat(chatScope, now) : tabObj.id === "Study" ? studyTab(now) : tabObj.id === "Documents" ? docsTab() : interviewTab());
     // Update URL hash without breaking history
     const targetHash = `#/course/${c.id}/${tabObj.id.toLowerCase()}`;
     if (location.hash !== targetHash) {
