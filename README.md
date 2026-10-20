@@ -1,130 +1,165 @@
-# LearnMate AI
+# LearnMate
 
-> **Interactive Video Learning Companion**: Ask questions while lecture videos play and receive cited, spoiler-free answers strictly restricted to content up to your current playback time. Includes adaptive AI tutoring, lecture summaries, concept comparison, smart quizzes, document parsing (PDF, PPTX, DOCX, TXT), and mock interviews with explainable scorecards.
+A timestamp-aware interactive learning assistant for recorded lectures. A learner pauses a video, asks a question, and receives an answer grounded strictly in the content unlocked up to the current playback position, with verified citations. If the lecture material does not support an answer, the system returns a refusal rather than hallucinating.
 
-Powered by a lightweight, clean architecture: **HTML5, CSS3, Vanilla JS, Python Flask, BM25 Keyword Search, PyMuPDF, python-pptx, and NVIDIA NIM (`openai/gpt-oss-20b`)** or any OpenAI-compatible provider.
+Team Syntax Surge | AHGV BuildVerse 2026 | Industry Problem Statement 1: AI-Powered Interactive Learning Assistant
 
----
-
-## Quickstart (No API Key Required)
-
-Run the fully offline demo in under 2 minutes:
-
-```bash
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
-pip install -r requirements.txt
-python app.py
-```
-Open **http://127.0.0.1:5000** in your browser.
-
-- You start in **Demo Mode**: all answers, quizzes, and study tools run offline using the bundled lecture (*"Python Lists"* — 8 video segments + synchronized lecture notes and slides).
-- Offline answers extract exact sentences from the lecture transcript and provide timestamp jump citations.
+Live Application: https://learnmate-xnq2.onrender.com/  
+(Hosted on Render free tier with Supabase PostgreSQL. The first request after a period of inactivity may take up to 50 seconds to spin up.)
 
 ---
 
-## Enable Real AI (NVIDIA NIM or Any Provider)
+## Features
 
-1. Copy `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-2. Configure your credentials in `.env`:
-   ```ini
-   LLM_API_KEY=your_nvidia_api_key_here
-   LLM_BASE_URL=https://integrate.api.nvidia.com/v1
-   LLM_MODEL=openai/gpt-oss-20b
-   ```
-3. Restart `python app.py`. The assistant automatically activates live AI intelligence.
+- Playhead-gated question answering: Video transcript cues and document pages are filtered by unlock timestamp before retrieval. Content appearing after the current playback position is never passed to the model.
+- Unified multi-resource retrieval: Video captions (YouTube auto-sync or uploaded .srt/.vtt files), PDF lecture notes, PowerPoint slide decks (.pptx), Word files (.docx), and text notes share a single retrieval layer.
+- Verified citations: Only sources actually retrieved in context are shown to the user. Citations link directly to video timestamps (which seek the player on click), PDF page numbers, or slide indices.
+- Hallucination control: Queries lacking sufficient supporting context return a structured "not found" response without querying the language model.
+- Study synthesis: Generates progressive summaries, key revision notes, concept comparisons, and multiple-choice quizzes with grounded answer rationales.
+- Adaptive mock interview: Evaluates user responses and dynamically poses follow-up questions to probe conceptual gaps. Generates an explainable scorecard with covered points, missed concepts, and scoring criteria.
+- LMS interoperability: Provides endpoints for simulated LMS user launch and gradebook progress export (POST /api/lms/launch and GET /api/lms/export/<course_id>).
+- Direct document inspection: Bundled and uploaded course documents can be viewed, outlined, and downloaded directly within the workspace.
+- Offline demo mode: Fully functional without an API key using deterministic sentence extraction against indexed course material.
 
 ---
 
-## What to Try (Judge Walkthrough)
-
-1. **Spoiler-Safe Playback Test**:
-   - Open the lecture module.
-   - At timestamp `0:30`, ask: *"How do I add an item to a list?"*
-   - **Result**: Polite refusal (*"That hasn't been covered yet in what you've watched so far! Please keep watching the video to reach this topic."* — taught at 1:30).
-   - Advance playhead past `1:40` and ask again: instant cited explanation with a `[1]` badge. Click the badge to jump the player to that exact cue.
-2. **YouTube Video & Auto-Subtitles**:
-   - Create a new course with a YouTube link (e.g. `https://www.youtube.com/watch?v=...`).
-   - Leave the subtitle file empty: LearnMate extracts captions and builds timestamped cues automatically.
-3. **Upload Your Own Materials**:
-   - In **Documents**, upload a `.pdf`, `.pptx`, `.docx`, or `.txt` file.
-   - Query your syllabus or slides directly with exact page/slide citations.
-4. **Adaptive Mock Interview**:
-   - Open the **Interview** tab.
-   - Answering with gaps generates an adaptive follow-up. A strong answer progresses to a higher-level question.
-   - Upon completion, view the explainable scorecard detailing covered competencies and revision gaps.
-
----
-
-## Core Architecture & Integrity Guarantees
+## Architecture
 
 ```mermaid
-flowchart TD
-    User["Learner Client<br/>(Playhead Time t)"] -->|POST /api/ask| Flask["Flask API Layer<br/>(app.py)"]
-    Flask --> Ingest["Ingestion & Validation<br/>(ingest.py)"]
-    Flask --> Gate["Strict Time Gate Filter<br/>(assistant.py)"]
-    
-    subgraph Core Retrieval Engine
-        Gate -->|"Chunk Unlock <= t Only"| BM25["BM25 Keyword Search<br/>(search.py)"]
-        BM25 --> Evidence["Ranked Context Snippets [1]..[n]"]
-    end
-    
-    Evidence --> Verify["Citation Verification & Grounding"]
-    Verify -->|Live AI| LLM["NVIDIA NIM Client<br/>(openai/gpt-oss-20b)"]
-    Verify -->|Demo Mode| SentenceExtract["Deterministic Sentence Matcher"]
-    
-    LLM --> VerifyAnswer["Grounding Validation"]
-    SentenceExtract --> VerifyAnswer
-    VerifyAnswer --> Output["Cited Response + Video Jump Cues"]
+flowchart LR
+    B["Browser Client<br/>Player + Interface"] -->|"POST /api/ask<br/>question, scope, timestamp"| A["Flask API Layer<br/>app.py"]
+    A --> G["Time Gate Filter<br/>unlock_time <= playback_time"]
+    G --> S["BM25 Retrieval Engine<br/>search.py + 90s window"]
+    S --> V{"Sufficient Evidence?"}
+    V -->|No| N["'Not Found' Response"]
+    V -->|Yes| L["LLM (NVIDIA NIM gpt-oss-20b)<br/>or Offline Engine"]
+    L --> C["Citation Verifier"]
+    C --> B
+    I["Ingestion Pipeline<br/>Captions, PDF, PPTX, DOCX"] --> ST[("Storage Layer<br/>Supabase PostgreSQL / JSON")]
+    ST --> G
 ```
 
-| Guarantee | Technical Implementation |
-|:---|:---|
-| **Zero Spoilers / Time-Gated** | Chunks are filtered *before* search. Any cue with `unlock > current_time` is strictly excluded from context. |
-| **No Hallucinated Citations** | The verification engine discards fabricated source numbers and attaches only verified retrieved chunks. |
-| **Unsupported Questions** | Questions lacking keyword overlap return polite refusals without calling the LLM, preventing hallucinations and conserving tokens. |
-| **Secret Isolation** | API credentials live exclusively on the backend / `.env`, are scrubbed from all error logs, and are never exposed in client bundles. |
-| **Upload Safety** | Magic-byte checks, zip-bomb size checks, and sanitized temporary file handlers defend against corrupted or malicious uploads. |
+Detailed design, concurrency isolation, and AWS service mapping: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
-## Deployment Guide
+## Technology Stack
 
-LearnMate uses lightweight JSON persistence organized by anonymous session tokens in `data/users/<uid>/`.
-
-### Option A: Render (Recommended)
-- **Service Type**: Web Service
-- **Environment**: Python
-- **Build Command**: `pip install -r requirements.txt`
-- **Start Command**: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120`
-- **Environment Variables**:
-  - `LLM_API_KEY`: Your NVIDIA NIM or provider key
-  - `LLM_BASE_URL`: `https://integrate.api.nvidia.com/v1`
-  - `LLM_MODEL`: `openai/gpt-oss-20b`
-  - `SECRET_KEY`: A cryptographically random hex string
-  - `COOKIE_SECURE`: `1`
-- *Note*: Use 1 worker to preserve in-process rate limiting and file lock coordination. For multi-month course retention across restarts, attach a Render Persistent Disk mounted to `DATA_DIR`.
-
-### Option B: VPS / Docker
-Run behind Nginx with SSL termination. Set `COOKIE_SECURE=1` and ensure the storage directory has appropriate read/write permissions.
+- Backend: Python 3.11+, Flask 3.0, Gunicorn (2 worker processes)
+- Frontend: Vanilla JavaScript (ES6+), HTML5 Video API, CSS3
+- Document Parsing: PyMuPDF (PDF), python-pptx (PowerPoint), youtube-transcript-api (YouTube captions)
+- Search: Inverted-index BM25 keyword retrieval with timestamp-bounded sliding window
+- Persistence: Dual-mode storage adapter (serverless Supabase PostgreSQL in production, local JSON for offline testing)
+- Inference: NVIDIA NIM API (openai/gpt-oss-20b) or any OpenAI-compatible completions endpoint, with token-bucket caching
 
 ---
 
-## Test Suite
+## Setup and Execution
 
-Run the full automated test suite:
+### Prerequisites
+- Python 3.11 or higher
+- Git
+
+### Installation
 
 ```bash
-python -m pytest
+# 1. Clone the repository
+git clone https://github.com/skavyansh15/LearnMate.git
+cd LearnMate/learnmate
+
+# 2. Create and activate a virtual environment
+python -m venv .venv
+
+# On Windows:
+.venv\Scripts\activate
+# On macOS/Linux:
+source .venv/bin/activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Optional: Set up environment variables
+cp .env.example .env
+
+# 5. Start the local server
+python app.py
 ```
 
-**Results**:
-- 80 automated unit and integration tests passing.
-- Validates YouTube timestamp boundaries, `.docx`/`.pdf`/`.pptx` parsing, BM25 indexing, LLM cache partitioning, CSRF headers, and rate-limiting.
+Open http://127.0.0.1:5000 in a browser. If LLM_API_KEY is omitted, the application runs in offline demo mode using the bundled sample lecture.
+
+---
+
+## Configuration
+
+All configuration is managed via environment variables. Refer to .env.example for reference defaults.
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| LLM_API_KEY | Provider API key. Empty string enables offline demo mode. | "" |
+| LLM_BASE_URL | Base URL for OpenAI-compatible endpoint | https://integrate.api.nvidia.com/v1 |
+| LLM_MODEL | Target language model identifier | openai/gpt-oss-20b |
+| DATABASE_URL | Optional PostgreSQL / Supabase connection URI for cloud persistence | "" |
+| SECRET_KEY | Flask session cryptographic signing key | Random 64-character hex |
+| COOKIE_SECURE | Set to 1 when serving over HTTPS | 0 |
+| DAILY_AI_CALLS | Per-user daily budget for live AI queries before falling back to demo extraction | 100 |
+| RATE_PER_MIN | Rate limit per user per minute | 30 |
+| DATA_DIR | Local storage directory when database is unconfigured | ./data |
+| MAX_UPLOAD_MB | Maximum allowed upload size in megabytes | 500 |
+
+---
+
+## Testing and Evaluation
+
+The repository includes an automated test suite covering timestamp restrictions, document ingestion, citation accuracy, session isolation, and database fallback.
+
+```bash
+# Run unit and integration tests
+python -m pytest
+
+# Run the 20-question grounding benchmark
+python evaluation/run_eval.py
+```
+
+Evaluation methodology and metrics: [docs/EVALUATION.md](docs/EVALUATION.md)
+
+---
+
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): System architecture, multi-user isolation, and AWS production migration blueprint (S3, Bedrock, Transcribe, OpenSearch, DynamoDB).
+- [docs/API.md](docs/API.md): API endpoint reference and LMS integration payload structures.
+- [docs/EVALUATION.md](docs/EVALUATION.md): Test scenarios, evaluation results, and grounding verification.
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): Deployment instructions for Render and Supabase.
+
+---
+
+## Sample Dataset
+
+The demo_course/ directory contains a 4-minute reference lecture on Python lists:
+- lecture.mp4: Lecture video
+- lecture.srt: Subtitle cues with explicit timing
+- lecture_notes.pdf: 4-page reference document
+- lecture_slides.pptx: 6-slide presentation deck
+- interview_bank.json: Bank of conceptual interview questions with keyword evaluation criteria
+
+---
+
+## Project Structure
+
+```text
+learnmate/
+├── app.py                # Application entrypoint, routing, and LMS endpoints
+├── assistant.py          # Time-gated retrieval, citation verification, and study tools
+├── config.py             # Environment configuration and security defaults
+├── errors.py             # Error definitions and client response formatting
+├── ingest.py             # Parsing for YouTube transcripts, SRT, VTT, PDF, PPTX, and DOCX
+├── interview.py          # Adaptive interview state engine and scoring
+├── llm.py                # LLM client with parameter caching and timeout handling
+├── search.py             # BM25 keyword search index
+├── store.py              # User storage adapter (PostgreSQL / JSON)
+├── static/               # Client interface (HTML, CSS, JavaScript)
+├── demo_course/          # Bundled sample lecture and documents
+├── docs/                 # System documentation and specifications
+├── tests/                # Automated pytest suite
+└── evaluation/           # Evaluation script and benchmark datasets
+```
