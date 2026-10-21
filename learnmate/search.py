@@ -6,7 +6,9 @@ from collections import Counter
 STOP = set("""a an the is are was were be been being of to in on for and or it its this that these those with as at by
 from what why how when who whom which does do did can could would should will i you he she we they his her their our
 about into than then so if not no yes my me your there here where also just very more most some any each
-work works use used using explain tell show give get make example examples difference between mean means meaning define describe please over compare compared comparing anything something thing things way ways""".split())
+work works use used using explain tell show give get make example examples difference between mean means meaning define describe please over compare compared comparing anything something thing things way ways
+video videos lecture lectures lecturer instructor teacher speaker course lesson class material materials covered cover covers
+watched watch watching far said say says talk talks taught teach teaches""".split())
 
 
 def stem(w):

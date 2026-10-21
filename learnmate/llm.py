@@ -86,7 +86,7 @@ def complete(system, user, max_tokens, api_key=None, base_url=None, model=None):
     try:
         msg = r.json()["choices"][0]["message"]
         # NVIDIA / reasoning models can provide response in 'content' or 'reasoning_content'
-        text = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+        text = (msg.get("content") or "").strip()  # never show the model's hidden reasoning as the answer
         if not text:
             raise ValueError("empty content")
     except (KeyError, IndexError, ValueError, AttributeError):

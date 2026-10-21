@@ -13,7 +13,7 @@ from errors import UserError
 
 NOT_FOUND_TEXT = "Not found in the content so far."
 REFERRING = re.compile(r"\b(here|this|that|just|mean|meant|said|again|repeat|previous)\b", re.I)
-OVERVIEW_RE = re.compile(r"\b(summariz|summary|key points|covered so far|what was just covered|core concept|core mechanism|overview|recap|review|explain current topic|explain what was covered)\b", re.I)
+OVERVIEW_RE = re.compile(r"\b(summar\w*|key points|covered so far|what was just covered|core concept|core mechanism|overview|recap|review|explain current topic|explain what was covered)\b", re.I)
 # A citation is [n] NOT glued to a word, so code like fruits[1] in the course text is never mistaken for one.
 CITE = re.compile(r"(?<![\w\)])\[(\d+(?:\s*,\s*\d+)*)\]")
 
@@ -227,7 +227,7 @@ def ask(uid, course, question, scope, t, history, api_key=None, base_url=None, m
     hist = "\n".join(f"{m['role']}: {strip(m['content'])}" for m in history[-4:])
     prompt = f"Context:\n{context_text(items)}\n\n" + (f"Earlier chat:\n{hist}\n\n" if hist else "") + f"Question: {question}"
     raw, mode, warn = generate(uid, SYSTEM_QA, prompt, config.MAX_TOKENS_ANSWER, lambda: demo_answer(items, topic), api_key=api_key, base_url=base_url, model=model)
-    return finish(verify(raw, items), mode, warn)
+    return finish(verify(raw, items, allow_uncited=True), mode, warn)
 
 
 # ---------- summary / notes / compare ----------------------------------------
