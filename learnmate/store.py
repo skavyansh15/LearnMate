@@ -1,4 +1,4 @@
-"""JSON-file storage. Every user gets their own folder: data/users/<user_id>/."""
+"""Tiny JSON-file storage. Every user gets their own folder: data/users/<user_id>/ (files are never shared)."""
 import json
 import os
 import re

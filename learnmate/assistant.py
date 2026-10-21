@@ -13,7 +13,7 @@ from errors import UserError
 
 NOT_FOUND_TEXT = "Not found in the content so far."
 REFERRING = re.compile(r"\b(here|this|that|just|mean|meant|said|again|repeat|previous)\b", re.I)
-OVERVIEW_RE = re.compile(r"\b(summar\w*|key points|covered so far|what was just covered|core concept|core mechanism|overview|recap|review|explain current topic|explain what was covered)\b", re.I)
+OVERVIEW_RE = re.compile(r"\b(summariz|summary|key points|covered so far|what was just covered|core concept|core mechanism|overview|recap|review|explain current topic|explain what was covered)\b", re.I)
 # A citation is [n] NOT glued to a word, so code like fruits[1] in the course text is never mistaken for one.
 CITE = re.compile(r"(?<![\w\)])\[(\d+(?:\s*,\s*\d+)*)\]")
 
@@ -24,9 +24,8 @@ CRITICAL RULES:
 1. ONLY answer from the provided course context and evidence watched up to the current playback time.
 2. If the user asks about something that occurs AFTER the current playback time or is NOT in the course materials, POLITELY DECLINE. Tell them: "That hasn't been covered yet in what you've watched so far! Please keep watching the video to reach this topic."
 3. NEVER make up facts, and NEVER answer off-topic general knowledge questions outside this course.
-4. Smart citations: Cite ONLY the specific 1 or 2 context snippets (e.g. [1]) that directly contain the evidence for your statement. Do NOT cite every available snippet, and do not repeat citations unnecessarily.
-5. Format your response cleanly using standard markdown: use bold (**term**) for emphasis, bullet points (-) for key items, and backticks (`code`) for code. If using section titles, use ### Title.
-6. Be warm, conversational, encouraging, and clear (2-4 sentences). Answer follow-up questions naturally."""
+4. Cite relevant facts with citations like [1] or [2] matching the provided context snippets.
+5. Be warm, conversational, encouraging, and clear (2-4 sentences). Answer follow-up questions naturally."""
 
 SYSTEM_STUDY = """You are LearnMate, a study helper. Use ONLY the numbered context up to the watched timestamp. Cite sources like [1] after each point.
 If the context is not enough for a point, leave that point out. Do not invent facts."""
@@ -164,13 +163,12 @@ def verify(raw, items, allow_uncited=False):
             # If model produced a genuine summary but omitted explicit [n] bracket tags,
             # present the summary and attach representative sources from the retrieved context.
             default_sources = [{"n": it["n"], "type": it["type"], "label": it["label"], "time": it["time"],
-                                "snippet": it.get("snippet") or it["text"][:140]} for it in items[:2]]
+                                "snippet": it.get("snippet") or it["text"][:220]} for it in items[:4]]
             return {"status": "ok", "answer": text, "sources": default_sources}
         return not_found()
-    selected_cited = cited[:3]
     return {"status": "ok", "answer": text, "sources": [
         {"n": n, "type": valid[n]["type"], "label": valid[n]["label"], "time": valid[n]["time"],
-         "snippet": valid[n].get("snippet") or valid[n]["text"][:140]} for n in selected_cited]}
+         "snippet": valid[n].get("snippet") or valid[n]["text"][:220]} for n in cited]}
 
 
 def finish(result, mode, warning):
@@ -202,32 +200,31 @@ def demo_answer(items, question):
 def ask(uid, course, question, scope, t, history, api_key=None, base_url=None, model=None):
     question = clean_question(question)
     chunks = _evidence(course, scope, t)  # text already cut at the playhead, so unplayed lines cannot match
-    hits = search.search(chunks, question, 4)
+    hits = search.search(chunks, question, config.TOP_K)
     topic = question  # the words that found the evidence (used by the offline answer too)
     prev = [m["content"] for m in history if m.get("role") == "user"]
     if not hits and prev:  # follow-up like "and how do I use it?"
         topic = prev[-1] + " " + question
-        hits = search.search(chunks, topic, 4)
+        hits = search.search(chunks, topic, config.TOP_K)
     items = [dict(h) for h in hits]
-    if scope == "video" and len(items) < 2:
-        window = local_window(course, t)
-        if window:
-            items.append(window)
+    window = local_window(course, t) if scope == "video" else None
+    if window:
+        items.append(window)
     if not hits and OVERVIEW_RE.search(question) and chunks:
         # User requested a summary/overview of covered progress or core concept
-        hits = chunks[-4:] if len(chunks) > 4 else chunks
+        hits = chunks[-config.TOP_K:] if len(chunks) > config.TOP_K else chunks
         items = [dict(h) for h in hits]
         topic = " ".join(search.top_terms([c["text"] for c in hits], 6))
     if not items or (not hits and not REFERRING.search(question) and not OVERVIEW_RE.search(question)):
         return not_found()  # no evidence -> we do not even call the AI
     number(items)
     for it in items:
-        it["snippet"] = search.excerpt(it["text"], topic, size=140)  # preview starts at the best-matching sentence
+        it["snippet"] = search.excerpt(it["text"], topic)  # preview starts at the best-matching sentence
     strip = lambda text: CITE.sub("", text).strip()[:300]
     hist = "\n".join(f"{m['role']}: {strip(m['content'])}" for m in history[-4:])
     prompt = f"Context:\n{context_text(items)}\n\n" + (f"Earlier chat:\n{hist}\n\n" if hist else "") + f"Question: {question}"
     raw, mode, warn = generate(uid, SYSTEM_QA, prompt, config.MAX_TOKENS_ANSWER, lambda: demo_answer(items, topic), api_key=api_key, base_url=base_url, model=model)
-    return finish(verify(raw, items, allow_uncited=True), mode, warn)
+    return finish(verify(raw, items), mode, warn)
 
 
 # ---------- summary / notes / compare ----------------------------------------

@@ -1,0 +1,37 @@
+# Environment secrets & credentials (NEVER commit to GitHub)
+.env
+.env.local
+.env.*.local
+
+# Local user runtime data & uploads
+data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Python caches & build artifacts
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE, Editor, & OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
