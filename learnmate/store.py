@@ -17,6 +17,89 @@ ID_RE = re.compile(r"^[a-f0-9]{8,32}$")
 DEMO_ID = "demo-python-lists"
 _hits = defaultdict(deque)
 
+# ---------- optional PostgreSQL backend (Supabase / Neon / Render Postgres) ---
+_pg_conn = None
+_pg_available = False
+
+def _init_db():
+    global _pg_conn, _pg_available
+    if not config.DATABASE_URL:
+        return
+    try:
+        import psycopg2
+        _pg_conn = psycopg2.connect(config.DATABASE_URL)
+        _pg_conn.autocommit = True
+        with _pg_conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS learnmate_kv (
+                    uid VARCHAR(64) NOT NULL,
+                    key VARCHAR(128) NOT NULL,
+                    data JSONB NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (uid, key)
+                );
+            """)
+        _pg_available = True
+    except Exception as e:
+        # Gracefully log and fallback to local file storage
+        import logging
+        logging.getLogger("learnmate").warning("PostgreSQL connection failed, falling back to local files: %s", e)
+        _pg_available = False
+
+_init_db()
+
+def _db_get(uid, key, default=None):
+    if not _pg_available:
+        return None
+    try:
+        with _lock:
+            with _pg_conn.cursor() as cur:
+                cur.execute("SELECT data FROM learnmate_kv WHERE uid = %s AND key = %s;", (uid, key))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+    except Exception:
+        pass
+    return None
+
+def _db_set(uid, key, data):
+    if not _pg_available:
+        return False
+    try:
+        with _lock:
+            with _pg_conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO learnmate_kv (uid, key, data, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (uid, key)
+                    DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP;
+                """, (uid, key, json.dumps(data)))
+            return True
+    except Exception:
+        return False
+
+def _db_delete(uid, key):
+    if not _pg_available:
+        return False
+    try:
+        with _lock:
+            with _pg_conn.cursor() as cur:
+                cur.execute("DELETE FROM learnmate_kv WHERE uid = %s AND key = %s;", (uid, key))
+            return True
+    except Exception:
+        return False
+
+def _db_list_prefix(uid, prefix):
+    if not _pg_available:
+        return []
+    try:
+        with _lock:
+            with _pg_conn.cursor() as cur:
+                cur.execute("SELECT data FROM learnmate_kv WHERE uid = %s AND key LIKE %s ORDER BY updated_at ASC;", (uid, f"{prefix}%"))
+                return [row[0] for row in cur.fetchall()]
+    except Exception:
+        return []
+
 
 def new_uid():
     return secrets.token_urlsafe(18)
@@ -60,7 +143,12 @@ def demo_course():
 
 def list_courses(uid):
     demo = demo_course()
-    mine = [_read(p, None) for p in sorted(_udir(uid, "courses").glob("*.json"))]
+    # Check DB first if available
+    db_courses = _db_list_prefix(uid, "course_")
+    if db_courses:
+        mine = db_courses
+    else:
+        mine = [_read(p, None) for p in sorted(_udir(uid, "courses").glob("*.json"))]
     return ([demo] if demo else []) + sorted([c for c in mine if c], key=lambda c: c["created"])
 
 
@@ -70,6 +158,10 @@ def get_course(uid, cid):
         if c:
             return c
     else:
+        # Check DB first
+        c = _db_get(uid, f"course_{_check_id(cid)}")
+        if c:
+            return c
         c = _read(_udir(uid, "courses") / f"{_check_id(cid)}.json", None)
         if c:
             return c
@@ -85,15 +177,19 @@ def course_dir(uid, cid):
 
 
 def save_course(uid, course):
+    cid = _check_id(course['id'])
     with _lock:
-        _write(_udir(uid, "courses") / f"{_check_id(course['id'])}.json", course)
+        _db_set(uid, f"course_{cid}", course)
+        _write(_udir(uid, "courses") / f"{cid}.json", course)
 
 
 def delete_course(uid, cid):
+    cid = _check_id(cid)
     with _lock:
-        (_udir(uid, "courses") / f"{_check_id(cid)}.json").unlink(missing_ok=True)
+        _db_delete(uid, f"course_{cid}")
+        (_udir(uid, "courses") / f"{cid}.json").unlink(missing_ok=True)
         # Clean up any local video media files
-        mdir = _udir(uid, "media", _check_id(cid))
+        mdir = _udir(uid, "media", cid)
         if mdir.exists():
             for p in mdir.glob("*"):
                 try:
@@ -107,17 +203,25 @@ def delete_course(uid, cid):
 
 
 def count_courses(uid):
+    db_courses = _db_list_prefix(uid, "course_")
+    if db_courses:
+        return len(db_courses)
     return len(list(_udir(uid, "courses").glob("*.json")))
 
 
 # ---------- saved quizzes / interviews --------------------------------------
 def save_obj(uid, kind, obj):
+    oid = _check_id(obj['id'])
     with _lock:
-        _write(_udir(uid, kind) / f"{_check_id(obj['id'])}.json", obj)
+        _db_set(uid, f"{kind}_{oid}", obj)
+        _write(_udir(uid, kind) / f"{oid}.json", obj)
 
 
 def load_obj(uid, kind, oid):
-    obj = _read(_udir(uid, kind) / f"{_check_id(oid)}.json", None)
+    oid = _check_id(oid)
+    obj = _db_get(uid, f"{kind}_{oid}")
+    if not obj:
+        obj = _read(_udir(uid, kind) / f"{oid}.json", None)
     if not obj:
         raise UserError("not_found", f"{kind[:-1].title()} not found.", "Start a new one.", 404)
     return obj
@@ -125,6 +229,9 @@ def load_obj(uid, kind, oid):
 
 # ---------- progress ---------------------------------------------------------
 def get_progress(uid):
+    p = _db_get(uid, "progress")
+    if p is not None:
+        return p
     return _read(_udir(uid) / "progress.json", {})
 
 
@@ -133,6 +240,7 @@ def update_progress(uid, cid, fn):
         data = get_progress(uid)
         rec = data.setdefault(cid, {"max_position": 0, "questions": 0, "quizzes": [], "interviews": []})
         fn(rec)
+        _db_set(uid, "progress", data)
         _write(_udir(uid) / "progress.json", data)
         return rec
 

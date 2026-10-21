@@ -1,74 +1,165 @@
-# LearnMate AI
+# LearnMate
 
-A beginner-friendly learning platform: **ask questions while a lecture video plays and get cited answers that never reveal anything beyond the current playback time**, study tools (summary, revision notes, quiz, concept comparison), your own PDF / PPTX / TXT documents with exact page, slide or line citations, and an adaptive text **mock interview** with an explainable scorecard.
+A timestamp-aware interactive learning assistant for recorded lectures. A learner pauses a video, asks a question, and receives an answer grounded strictly in the content unlocked up to the current playback position, with verified citations. If the lecture material does not support an answer, the system returns a refusal rather than hallucinating.
 
-Plain HTML + CSS + JavaScript, Python **Flask**, **PyMuPDF**, **python-pptx**, and **one** configurable AI API. No React, no database server, no vector database.
+Team Syntax Surge | AHGV BuildVerse 2026 | Industry Problem Statement 1: AI-Powered Interactive Learning Assistant
 
-## Run it (5 minutes, no API key needed)
+Live Application: https://learnmate-xnq2.onrender.com/  
+(Hosted on Render free tier with Supabase PostgreSQL. The first request after a period of inactivity may take up to 50 seconds to spin up.)
+
+---
+
+## Features
+
+- Playhead-gated question answering: Video transcript cues and document pages are filtered by unlock timestamp before retrieval. Content appearing after the current playback position is never passed to the model.
+- Unified multi-resource retrieval: Video captions (YouTube auto-sync or uploaded .srt/.vtt files), PDF lecture notes, PowerPoint slide decks (.pptx), Word files (.docx), and text notes share a single retrieval layer.
+- Verified citations: Only sources actually retrieved in context are shown to the user. Citations link directly to video timestamps (which seek the player on click), PDF page numbers, or slide indices.
+- Hallucination control: Queries lacking sufficient supporting context return a structured "not found" response without querying the language model.
+- Study synthesis: Generates progressive summaries, key revision notes, concept comparisons, and multiple-choice quizzes with grounded answer rationales.
+- Adaptive mock interview: Evaluates user responses and dynamically poses follow-up questions to probe conceptual gaps. Generates an explainable scorecard with covered points, missed concepts, and scoring criteria.
+- LMS interoperability: Provides endpoints for simulated LMS user launch and gradebook progress export (POST /api/lms/launch and GET /api/lms/export/<course_id>).
+- Direct document inspection: Bundled and uploaded course documents can be viewed, outlined, and downloaded directly within the workspace.
+- Offline demo mode: Fully functional without an API key using deterministic sentence extraction against indexed course material.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    B["Browser Client<br/>Player + Interface"] -->|"POST /api/ask<br/>question, scope, timestamp"| A["Flask API Layer<br/>app.py"]
+    A --> G["Time Gate Filter<br/>unlock_time <= playback_time"]
+    G --> S["BM25 Retrieval Engine<br/>search.py + 90s window"]
+    S --> V{"Sufficient Evidence?"}
+    V -->|No| N["'Not Found' Response"]
+    V -->|Yes| L["LLM (NVIDIA NIM Nemotron-3)<br/>or Offline Engine"]
+    L --> C["Citation Verifier"]
+    C --> B
+    I["Ingestion Pipeline<br/>Captions, PDF, PPTX, DOCX"] --> ST[("Storage Layer<br/>Supabase PostgreSQL / JSON")]
+    ST --> G
+```
+
+Detailed design, concurrency isolation, and AWS service mapping: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+---
+
+## Technology Stack
+
+- Backend: Python 3.11+, Flask 3.0, Gunicorn (2 worker processes)
+- Frontend: Vanilla JavaScript (ES6+), HTML5 Video API, CSS3
+- Document Parsing: PyMuPDF (PDF), python-pptx (PowerPoint), youtube-transcript-api (YouTube captions)
+- Search: Inverted-index BM25 keyword retrieval with timestamp-bounded sliding window
+- Persistence: Dual-mode storage adapter (serverless Supabase PostgreSQL in production, local JSON for offline testing)
+- Inference: NVIDIA NIM API (nvidia/nemotron-3-ultra-550b-a55b) or any OpenAI-compatible completions endpoint, with token-bucket caching
+
+---
+
+## Setup and Execution
+
+### Prerequisites
+- Python 3.11 or higher
+- Git
+
+### Installation
 
 ```bash
+# 1. Clone the repository
+git clone https://github.com/skavyansh15/LearnMate.git
+cd LearnMate/learnmate
+
+# 2. Create and activate a virtual environment
 python -m venv .venv
-.venv\Scripts\activate            # Windows      (Mac/Linux: source .venv/bin/activate)
+
+# On Windows:
+.venv\Scripts\activate
+# On macOS/Linux:
+source .venv/bin/activate
+
+# 3. Install dependencies
 pip install -r requirements.txt
-python app.py                     # open http://127.0.0.1:5000
+
+# 4. Optional: Set up environment variables
+cp .env.example .env
+
+# 5. Start the local server
+python app.py
 ```
 
-You start in **demo mode**: everything works offline on the built-in sample course ("Python Lists", an 8 x 30 s lecture + PDF + slides). Answers are sentences taken straight from the course text with citations.
+Open http://127.0.0.1:5000 in a browser. If LLM_API_KEY is omitted, the application runs in offline demo mode using the bundled sample lecture.
 
-### Turn on the real AI (optional)
+---
 
-1. `copy .env.example .env` (Mac/Linux: `cp`).
-2. Put your key in `LLM_API_KEY=`. The defaults point at Google Gemini's OpenAI-compatible endpoint; **check the model name** in `LLM_MODEL` against your provider's current list.
-3. Any OpenAI-compatible service works (OpenAI, Groq, DeepSeek, ...): change `LLM_BASE_URL` and `LLM_MODEL`. Nothing else changes.
-4. Restart. The badge in the top bar changes to "AI live".
+## Configuration
 
-## What to try (2-minute demo script)
+All configuration is managed via environment variables. Refer to .env.example for reference defaults.
 
-1. Open the demo course. Play to ~0:40, pause, ask **"How do I add an item to a list?"** -> *Not found in the content so far* (it is taught at 1:30).
-2. Play past 1:40 and ask again -> a cited answer. Click the yellow citation to jump the video to that moment.
-3. **Study** tab -> *Revision notes*, *Quiz me*, and *Compare* "remove" vs "pop".
-4. **Add your own course** (title only), upload a PDF/PPTX/TXT in **Documents**, ask about it: citations read like `notes.pdf p.3` / `deck.pptx slide 5` / `notes.txt lines 12-20`.
-5. **Interview** tab -> answer 4 questions; try a weak answer to see the follow-up, a strong one to see a harder question, then read the scorecard ("How was this scored?").
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| LLM_API_KEY | Provider API key. Empty string enables offline demo mode. | "" |
+| LLM_BASE_URL | Base URL for OpenAI-compatible endpoint | https://integrate.api.nvidia.com/v1 |
+| LLM_MODEL | Target language model identifier | nvidia/nemotron-3-ultra-550b-a55b |
+| DATABASE_URL | Optional PostgreSQL / Supabase connection URI for cloud persistence | "" |
+| SECRET_KEY | Flask session cryptographic signing key | Random 64-character hex |
+| COOKIE_SECURE | Set to 1 when serving over HTTPS | 0 |
+| DAILY_AI_CALLS | Per-user daily budget for live AI queries before falling back to demo extraction | 100 |
+| RATE_PER_MIN | Rate limit per user per minute | 30 |
+| DATA_DIR | Local storage directory when database is unconfigured | ./data |
+| MAX_UPLOAD_MB | Maximum allowed upload size in megabytes | 500 |
 
-## How the key promises are kept
+---
 
-| Promise | How |
-|---|---|
-| Never reveals content beyond the playhead | The time filter runs **before** search. Video text is cut line-by-line at the playhead, so a line that has not started is never searched or sent to the AI. Tested at 7 playhead positions x 7 questions. |
-| Never invents citations | Sources shown are the retrieved chunks. Citation numbers the AI makes up are dropped; an answer with no valid citation becomes "not found". |
-| Missing evidence is handled | No chunk with enough of the question's key words -> "not found", **without calling the AI** (also saves money). |
-| Protect the API key | Only read from environment / `.env` (git-ignored), never sent to the browser, scrubbed from error messages. |
-| Validate uploads | Extension + real file signature, size/page/text limits, zip-bomb check, nothing is stored except extracted text. |
-| Control AI cost | Max tokens, evidence capped at 6000 characters, identical requests cached, per-user daily AI call limit (then demo answers), per-minute rate limit, one interview feedback call at most. |
-| Users' files stay separate | Each browser gets a random anonymous id; data lives in `data/users/<id>/`; ids are validated against path tricks; tested with two users. |
+## Testing and Evaluation
 
-## Project map
+The repository includes an automated test suite covering timestamp restrictions, document ingestion, citation accuracy, session isolation, and database fallback.
 
-```
-app.py          Flask routes (thin)            assistant.py  Q&A, summary, notes, quiz, compare
-interview.py    mock interview + scorecard     search.py     tiny BM25 keyword search
-ingest.py       SRT/VTT, PDF, PPTX, TXT -> chunks + upload validation
-llm.py          the ONLY file that calls an AI service      store.py  JSON files, progress, limits
-static/         index.html, style.css, app.js   demo_course/ sample data     tools/make_demo.py  rebuild it
-tests/          72 automated tests              evaluation/   run_eval.py -> docs/EVALUATION.md
-docs/           ARCHITECTURE, API, EVALUATION, DEPLOYMENT
+```bash
+# Run unit and integration tests
+python -m pytest
+
+# Run the 20-question grounding benchmark
+python evaluation/run_eval.py
 ```
 
-Run the tests: `python -m unittest discover -s tests` (no API key, no internet needed).
+Evaluation methodology and metrics: [docs/EVALUATION.md](docs/EVALUATION.md)
 
-## Using your own lecture
+---
 
-Dashboard -> **Add your own course**: a direct `.mp4`/`.webm` link (YouTube page links do not work) plus a matching `.srt` or `.vtt` transcript. Timestamps must line up with the video. Automatic transcription and direct video upload are **not** included.
+## Documentation
 
-## Honest limits
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): System architecture, multi-user isolation, and AWS production migration blueprint (S3, Bedrock, Transcribe, OpenSearch, DynamoDB).
+- [docs/API.md](docs/API.md): API endpoint reference and LMS integration payload structures.
+- [docs/EVALUATION.md](docs/EVALUATION.md): Test scenarios, evaluation results, and grounding verification.
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): Deployment instructions for Render and Supabase.
 
-- **Uploaded PDFs/slides are not tied to the video timeline.** They are searched in the *Documents* tab. Only the demo course has PDF/slide pages unlocked at video times (`demo_course/mapping.json`, set by hand).
-- Search is keyword-based (no synonyms): "delete" will not find text that says "remove".
-- Demo-mode answers are extracted sentences, not written explanations. The interview score is word-matching, so a correct answer in different words can score low. The scorecard says so.
-- Scanned PDFs / image-only slides have no text (no OCR). YouTube links, login/accounts, and payments are not included.
-- Data is stored in local JSON files: fine for a demo, not for thousands of users.
+---
 
-## What is verified (and what is not)
+## Sample Dataset
 
-Verified here: 72 automated tests pass; the server was run and all endpoints exercised over real HTTP in demo mode; demo-mode evaluation in `docs/EVALUATION.md`.
-**Not verified:** answer quality with a real AI model (calls are mocked in tests), reading real PDFs with PyMuPDF (the library was not installable where this was built: the page/label logic is tested with a stand-in and one test runs automatically once PyMuPDF is installed, plus the demo PDF's text was cross-checked with `pdftotext`), the UI in a real browser / on a phone (JavaScript was syntax-checked only), and deployment to a host. Run the tests and click through the demo script on your machine before presenting.
+The demo_course/ directory contains a 4-minute reference lecture on Python lists:
+- lecture.mp4: Lecture video
+- lecture.srt: Subtitle cues with explicit timing
+- lecture_notes.pdf: 4-page reference document
+- lecture_slides.pptx: 6-slide presentation deck
+- interview_bank.json: Bank of conceptual interview questions with keyword evaluation criteria
+
+---
+
+## Project Structure
+
+```text
+learnmate/
+├── app.py                # Application entrypoint, routing, and LMS endpoints
+├── assistant.py          # Time-gated retrieval, citation verification, and study tools
+├── config.py             # Environment configuration and security defaults
+├── errors.py             # Error definitions and client response formatting
+├── ingest.py             # Parsing for YouTube transcripts, SRT, VTT, PDF, PPTX, and DOCX
+├── interview.py          # Adaptive interview state engine and scoring
+├── llm.py                # LLM client with parameter caching and timeout handling
+├── search.py             # BM25 keyword search index
+├── store.py              # User storage adapter (PostgreSQL / JSON)
+├── static/               # Client interface (HTML, CSS, JavaScript)
+├── demo_course/          # Bundled sample lecture and documents
+├── docs/                 # System documentation and specifications
+├── tests/                # Automated pytest suite
+└── evaluation/           # Evaluation script and benchmark datasets
+```
