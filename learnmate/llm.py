@@ -1,5 +1,6 @@
 """The ONLY file that talks to an AI provider. Any OpenAI-compatible endpoint works (Gemini, OpenAI, Groq, ...)."""
 import hashlib
+import re
 import time
 from collections import OrderedDict
 
@@ -28,15 +29,17 @@ def complete(system, user, max_tokens, api_key=None, base_url=None, model=None):
     effective_model = model or config.LLM_MODEL
     effective_base_url = (base_url or config.LLM_BASE_URL).rstrip("/")
     
-    key = hashlib.sha256(f"{effective_model}|{max_tokens}|{system}|{user}".encode()).hexdigest()
+    # Secure cache key factoring in endpoint, model, tokens, system, and user payload
+    key = hashlib.sha256(f"{effective_base_url}|{effective_model}|{max_tokens}|{system}|{user}".encode()).hexdigest()
     if key in _cache:
         _cache.move_to_end(key)
         return _cache[key]
         
+    # Calibrated temperature: precise for structured/educational grounding (0.7)
     body = {
         "model": effective_model,
-        "temperature": 1.0,
-        "top_p": 1.0,
+        "temperature": 0.7,
+        "top_p": 0.95,
         "max_tokens": min(max_tokens, 4096),
         "stream": False,
         "messages": [
@@ -47,14 +50,23 @@ def complete(system, user, max_tokens, api_key=None, base_url=None, model=None):
     url = f"{effective_base_url}/chat/completions"
     
     r = None
-    max_attempts = 4
+    max_attempts = 2
     for attempt in range(max_attempts):
         try:
-            r = requests.post(url, json=body, timeout=50, headers={"Authorization": f"Bearer {effective_key}"})
+            r = requests.post(url, json=body, timeout=25, headers={"Authorization": f"Bearer {effective_key}"})
         except requests.RequestException:
             if attempt < max_attempts - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(1)
                 continue
+            # If primary model timed out on NVIDIA NIM and wasn't the ultra-550b fallback, try fallback
+            if "nvidia.com" in effective_base_url and effective_model != "nvidia/nemotron-3-ultra-550b-a55b":
+                try:
+                    fallback_body = dict(body, model="nvidia/nemotron-3-ultra-550b-a55b")
+                    r = requests.post(url, json=fallback_body, timeout=25, headers={"Authorization": f"Bearer {effective_key}"})
+                    if r.status_code == 200:
+                        break
+                except requests.RequestException:
+                    pass
             raise UserError("ai_unreachable", "The AI service could not be reached.", f"Check your internet or endpoint URL: {effective_base_url}", 502)
             
         if r.status_code == 429 and attempt < max_attempts - 1:
@@ -65,13 +77,22 @@ def complete(system, user, max_tokens, api_key=None, base_url=None, model=None):
                     wait_time = float(hdr)
             except Exception:
                 pass
-            time.sleep(min(wait_time, 8))
+            time.sleep(min(wait_time, 4))
             continue
-        elif r.status_code == 503 and attempt < max_attempts - 1:
-            time.sleep(2)
+        elif r.status_code in (502, 503, 504) and attempt < max_attempts - 1:
+            time.sleep(1)
             continue
         break
         
+    if r.status_code in (404, 410, 502, 503, 504) and "nvidia.com" in effective_base_url and effective_model != "nvidia/nemotron-3-ultra-550b-a55b":
+        try:
+            fallback_body = dict(body, model="nvidia/nemotron-3-ultra-550b-a55b")
+            fb_r = requests.post(url, json=fallback_body, timeout=25, headers={"Authorization": f"Bearer {effective_key}"})
+            if fb_r.status_code == 200:
+                r = fb_r
+        except requests.RequestException:
+            pass
+
     if r.status_code == 429:
         detail = r.text[:150].replace(effective_key, "***")
         raise UserError("ai_rate_limit", "Rate limit reached (429). The model provider is temporarily busy.",
@@ -84,7 +105,8 @@ def complete(system, user, max_tokens, api_key=None, base_url=None, model=None):
     try:
         msg = r.json()["choices"][0]["message"]
         # NVIDIA / reasoning models can provide response in 'content' or 'reasoning_content'
-        text = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+        raw_text = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+        text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
         if not text:
             raise ValueError("empty content")
     except (KeyError, IndexError, ValueError, AttributeError):
