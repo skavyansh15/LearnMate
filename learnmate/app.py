@@ -117,13 +117,6 @@ def create_app():
     def demo_video():
         return send_from_directory(config.DEMO_DIR, "lecture.mp4", conditional=True)  # supports seeking
 
-    @app.get("/media/demo/<filename>")
-    def demo_file(filename):
-        safe_files = {"lecture_notes.pdf", "lecture_slides.pptx", "lecture.srt", "lecture.mp4"}
-        if filename not in safe_files:
-            raise UserError("not_found", "File not found.", status=404)
-        return send_from_directory(config.DEMO_DIR, filename, conditional=True)
-
     @app.get("/api/health")
     def health():
         return {"status": "ok"}
@@ -169,17 +162,9 @@ def create_app():
     def summary(c):
         prog = store.get_progress(uid()).get(c["id"], {})
         duration = c["cues"][-1]["end"] if c.get("cues") else 0
-        docs = []
-        for d in c.get("documents", []):
-            d_item = dict(d)
-            if store.is_demo(c["id"]):
-                d_item["url"] = f"/media/demo/{d['name']}"
-            else:
-                d_item["url"] = f"/api/courses/{c['id']}/documents/{d['id']}/download"
-            docs.append(d_item)
         return {"id": c["id"], "title": c["title"], "demo": store.is_demo(c["id"]), "has_video": c.get("has_video", False),
                 "video_url": c.get("video_url"), "video_type": c.get("video_type", "direct"),
-                "video_embed": c.get("video_embed"), "duration": duration, "documents": docs,
+                "video_embed": c.get("video_embed"), "duration": duration, "documents": c.get("documents", []),
                 "progress": {"max_position": prog.get("max_position", 0), "questions": prog.get("questions", 0),
                              "quizzes": prog.get("quizzes", []), "interviews": prog.get("interviews", []),
                              "percent_watched": round(100 * min(prog.get("max_position", 0) / duration, 1)) if duration else 0}}
@@ -289,52 +274,22 @@ def create_app():
         if len(c["documents"]) >= config.MAX_DOCS_PER_COURSE:
             raise UserError("quota", f"A course can have at most {config.MAX_DOCS_PER_COURSE} documents.", "Delete one first.", 403)
         name = Path(f.filename).name[:80]  # drop any path parts
-        raw_bytes = f.read()
-        kind, chunks, pages = ingest.extract_document(name, raw_bytes)
+        kind, chunks, pages = ingest.extract_document(name, f.read())
         did = store.new_id()
         for i, ch in enumerate(chunks):
             ch["id"], ch["doc_id"] = f"{did}-{i}", did
         c["chunks"] += chunks
-        # Save raw file so user can download/open it anytime
-        mdir = store.course_dir(uid(), cid)
-        ext = ingest._ext(name)
-        saved_name = f"doc_{did}{ext}"
-        try:
-            (mdir / saved_name).write_bytes(raw_bytes)
-        except Exception:
-            saved_name = None
-        c["documents"].append({"id": did, "name": name, "kind": kind, "pages": pages, "file": saved_name})
+        c["documents"].append({"id": did, "name": name, "kind": kind, "pages": pages})
         store.save_course(uid(), c)
         return summary(c), 201
 
     @app.delete("/api/courses/<cid>/documents/<did>")
     def delete_document(cid, did):
         c = editable(cid)
-        target = next((d for d in c["documents"] if d["id"] == did), None)
-        if target and target.get("file"):
-            try:
-                (store.course_dir(uid(), cid) / target["file"]).unlink(missing_ok=True)
-            except Exception:
-                pass
         c["documents"] = [d for d in c["documents"] if d["id"] != did]
         c["chunks"] = [ch for ch in c["chunks"] if ch.get("doc_id") != did]
         store.save_course(uid(), c)
         return summary(c)
-
-    @app.get("/api/courses/<cid>/documents/<did>/download")
-    def download_document(cid, did):
-        c = store.get_course(uid(), cid)
-        if store.is_demo(cid):
-            doc = next((d for d in c.get("documents", []) if d["id"] == did), None)
-            if not doc:
-                raise UserError("not_found", "Document not found.", status=404)
-            return send_from_directory(config.DEMO_DIR, doc["name"], conditional=True)
-        doc = next((d for d in c.get("documents", []) if d["id"] == did), None)
-        if not doc:
-            raise UserError("not_found", "Document not found.", status=404)
-        vdir = store.course_dir(uid(), cid)
-        filename = doc.get("file") or doc.get("name")
-        return send_from_directory(vdir, filename, download_name=doc["name"], conditional=True)
 
     # ---------- learning assistant ---------------------------------------------
     @app.post("/api/ask")

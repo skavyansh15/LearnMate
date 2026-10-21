@@ -5,11 +5,7 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv
-    _env_file = Path(__file__).parent / ".env"
-    if _env_file.exists():
-        load_dotenv(_env_file)
-    else:
-        load_dotenv()
+    load_dotenv()
 except ImportError:  # python-dotenv is optional
     pass
 
@@ -17,7 +13,6 @@ BASE = Path(__file__).parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE / "data"))   # per-user files live here
 USERS_DIR = DATA_DIR / "users"
 DEMO_DIR = BASE / "demo_course"                          # shipped sample course (read-only)
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()    # optional PostgreSQL (e.g. Supabase / Neon)
 
 # ---- ONE configurable AI API (any OpenAI-compatible /chat/completions endpoint) ----
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")               # empty -> demo mode

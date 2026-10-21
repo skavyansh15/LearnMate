@@ -84,9 +84,11 @@ def parse_questions(text):
 
 
 def load_questions(uid, course, n, api_key=None, base_url=None, model=None):
-    eff_key = api_key or config.LLM_API_KEY
-    if llm.is_live(eff_key) and store.allow_ai_call(uid):
-        items = [{"n": i + 1, "label": c.get("label", ""), "text": c["text"]} for i, c in enumerate(course.get("chunks", [])[:40])]
+    bank = config.DEMO_DIR / "interview_bank.json"
+    if course["id"] == store.DEMO_ID and bank.exists():
+        return json.loads(bank.read_text(encoding="utf-8")), "demo"
+    if llm.is_live(api_key) and store.allow_ai_call(uid):
+        items = [{"n": i + 1, "label": c.get("label", ""), "text": c["text"]} for i, c in enumerate(course["chunks"][:40])]
         ctx = "\n\n".join(f"[{i['n']}] {i['text']}" for i in items)[:config.CONTEXT_CHARS]
         try:
             prompt = (
@@ -95,14 +97,11 @@ def load_questions(uid, course, n, api_key=None, base_url=None, model=None):
                 "Include 2-4 key point concepts and likely vocabulary terms for each question. "
                 "Return JSON ONLY matching the required format."
             )
-            qs = parse_questions(llm.complete(SYSTEM_IV, prompt, config.MAX_TOKENS_STUDY, api_key=eff_key, base_url=base_url, model=model))
+            qs = parse_questions(llm.complete(SYSTEM_IV, prompt, config.MAX_TOKENS_STUDY, api_key=api_key, base_url=base_url, model=model))
             if qs:
                 return qs, "live"
         except UserError:
             pass
-    bank = config.DEMO_DIR / "interview_bank.json"
-    if course["id"] == store.DEMO_ID and bank.exists():
-        return json.loads(bank.read_text(encoding="utf-8")), "demo"
     return demo_questions(course, n), "demo"
 
 
@@ -205,10 +204,10 @@ def scorecard(uid, interview_id, api_key=None, base_url=None, model=None):
                           "The score is rule-based (word matching), so a correct answer in very different words can score low."}
     if "summary" not in state:
         summary = f"You scored {overall}% ({level}). " + (f"Review: {', '.join(gaps[:4])}." if gaps else "No gaps found.")
-        eff_key = api_key or state.get("api_key") or config.LLM_API_KEY
-        eff_url = base_url or state.get("base_url") or config.LLM_BASE_URL
-        eff_model = model or state.get("model") or config.LLM_MODEL
-        if llm.is_live(eff_key) and store.allow_ai_call(uid):
+        eff_key = api_key or state.get("api_key")
+        eff_url = base_url or state.get("base_url")
+        eff_model = model or state.get("model")
+        if state["mode"] == "live" and llm.is_live(eff_key) and store.allow_ai_call(uid):
             try:
                 summary = llm.complete(SYSTEM_FB, json.dumps({k: card[k] for k in ("overall_percent", "strengths", "gaps")}), 150,
                                        api_key=eff_key, base_url=eff_url, model=eff_model)

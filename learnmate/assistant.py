@@ -13,7 +13,6 @@ from errors import UserError
 
 NOT_FOUND_TEXT = "Not found in the content so far."
 REFERRING = re.compile(r"\b(here|this|that|just|mean|meant|said|again|repeat|previous)\b", re.I)
-OVERVIEW_RE = re.compile(r"\b(summariz|summary|key points|covered so far|what was just covered|core concept|core mechanism|overview|recap|review|explain current topic|explain what was covered)\b", re.I)
 # A citation is [n] NOT glued to a word, so code like fruits[1] in the course text is never mistaken for one.
 CITE = re.compile(r"(?<![\w\)])\[(\d+(?:\s*,\s*\d+)*)\]")
 
@@ -210,12 +209,7 @@ def ask(uid, course, question, scope, t, history, api_key=None, base_url=None, m
     window = local_window(course, t) if scope == "video" else None
     if window:
         items.append(window)
-    if not hits and OVERVIEW_RE.search(question) and chunks:
-        # User requested a summary/overview of covered progress or core concept
-        hits = chunks[-config.TOP_K:] if len(chunks) > config.TOP_K else chunks
-        items = [dict(h) for h in hits]
-        topic = " ".join(search.top_terms([c["text"] for c in hits], 6))
-    if not items or (not hits and not REFERRING.search(question) and not OVERVIEW_RE.search(question)):
+    if not items or (not hits and not REFERRING.search(question)):
         return not_found()  # no evidence -> we do not even call the AI
     number(items)
     for it in items:
@@ -248,10 +242,6 @@ def demo_summary(items, notes):
 def study(uid, course, kind, scope, t, a=None, b=None, api_key=None, base_url=None, model=None):
     if kind in ("summary", "notes"):
         items = _evidence(course, scope, t)
-        if not items and scope == "video" and (t is None or t <= 0):
-            all_chunks = [c for c in course.get("chunks", []) if c.get("type") == "video"]
-            if all_chunks:
-                items = number([to_item(c, course, scope, None) for c in all_chunks[:config.TOP_K]])
         if not items:
             return not_found("Nothing to summarize yet - watch more of the video or upload a document first.")
         ask_for = ("Write 4-6 bullet points summarizing the context." if kind == "summary" else
@@ -340,10 +330,6 @@ def demo_quiz(items, n, rng):
 def make_quiz(uid, course, scope, t, n=5, api_key=None, base_url=None, model=None):
     n = max(1, min(int(n or 5), 10))
     items = _evidence(course, scope, t)
-    if not items and scope == "video" and (t is None or t <= 0):
-        all_chunks = [c for c in course.get("chunks", []) if c.get("type") == "video"]
-        if all_chunks:
-            items = number([to_item(c, course, scope, None) for c in all_chunks[:config.TOP_K]])
     if not items:
         return not_found("Nothing to quiz on yet - watch more of the video or upload a document first.")
     qid = store.new_id()
