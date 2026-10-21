@@ -33,162 +33,22 @@ async function api(path, { method = "GET", json, form } = {}) {
 }
 const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message); } };
 
-// ---------- answers with clickable citations & markdown formatting --------------------------------
+// ---------- answers with clickable citations --------------------------------
 function jump(src) {
-  if (!src || src.time === null || src.time === undefined) return;
-  if (state.video) {
-    state.video.currentTime = src.time;
-    state.video.play();
-  } else if (state.ytPlayer && typeof state.ytPlayer.seekTo === "function") {
-    try {
-      state.ytPlayer.seekTo(src.time, true);
-      state.ytPlayer.playVideo();
-    } catch (e) {}
-  }
+  if (src.time !== null && src.time !== undefined && state.video) { state.video.currentTime = src.time; state.video.play(); }
 }
-
-function renderInline(str, sourcesByN) {
-  const tokenRegex = /((?<![\w)])\[\d+\]|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
-  const parts = str.split(tokenRegex);
-  const nodes = [];
-  for (const part of parts) {
-    if (!part) continue;
-    const citeMatch = part.match(/^\[(\d+)\]$/);
-    if (citeMatch) {
-      const s = sourcesByN[citeMatch[1]];
-      nodes.push(s ? el("button", { class: "cite", type: "button", title: s.label, onclick: () => jump(s) }, String(s.n)) : part);
-      continue;
-    }
-    if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
-      nodes.push(el("code", { class: "md-code" }, part.slice(1, -1)));
-      continue;
-    }
-    if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
-      nodes.push(el("b", { class: "md-bold" }, part.slice(2, -2)));
-      continue;
-    }
-    if (part.startsWith("*") && part.endsWith("*") && part.length >= 2) {
-      nodes.push(el("em", { class: "md-italic" }, part.slice(1, -1)));
-      continue;
-    }
-    nodes.push(part);
-  }
-  return nodes;
-}
-
-function formatMarkdown(rawText, sourcesByN) {
-  const container = el("div", { class: "md-body" });
-  const lines = (rawText || "").split(/\r?\n/);
-  let currentList = null;
-  let listType = null;
-  let inCodeBlock = false;
-  let codeBlockLines = [];
-
-  const flushList = () => {
-    if (currentList) {
-      container.append(currentList);
-      currentList = null;
-      listType = null;
-    }
-  };
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("```")) {
-      flushList();
-      if (!inCodeBlock) {
-        inCodeBlock = true;
-        codeBlockLines = [];
-      } else {
-        inCodeBlock = false;
-        container.append(el("pre", { class: "md-pre" }, el("code", { class: "md-code-block" }, codeBlockLines.join("\n"))));
-        codeBlockLines = [];
-      }
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeBlockLines.push(line);
-      continue;
-    }
-
-    if (!trimmed) {
-      flushList();
-      continue;
-    }
-
-    // Markdown Headings: #, ##, ###, ####
-    const hMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
-    if (hMatch) {
-      flushList();
-      const level = hMatch[1].length;
-      const tag = level <= 2 ? "h3" : "h4";
-      container.append(el(tag, { class: "md-heading" }, ...renderInline(hMatch[2], sourcesByN)));
-      continue;
-    }
-
-    // Bullet points: - item or * item
-    const ulMatch = trimmed.match(/^[\*\-]\s+(.*)$/);
-    if (ulMatch) {
-      if (listType !== "ul") {
-        flushList();
-        currentList = el("ul", { class: "md-ul" });
-        listType = "ul";
-      }
-      currentList.append(el("li", { class: "md-li" }, ...renderInline(ulMatch[1], sourcesByN)));
-      continue;
-    }
-
-    // Numbered list: 1. item
-    const olMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
-    if (olMatch) {
-      if (listType !== "ol") {
-        flushList();
-        currentList = el("ol", { class: "md-ol" });
-        listType = "ol";
-      }
-      currentList.append(el("li", { class: "md-li" }, ...renderInline(olMatch[2], sourcesByN)));
-      continue;
-    }
-
-    // Regular paragraph
-    flushList();
-    container.append(el("p", { class: "md-p" }, ...renderInline(line, sourcesByN)));
-  }
-  flushList();
-  if (inCodeBlock && codeBlockLines.length) {
-    container.append(el("pre", { class: "md-pre" }, el("code", { class: "md-code-block" }, codeBlockLines.join("\n"))));
-  }
-  return container;
-}
-
 function answerBlock(d) {
-  const by = Object.fromEntries((d.sources || []).map(s => [s.n, s]));
-  const formattedContent = formatMarkdown(d.answer || "", by);
-
-  let sourcesContainer = null;
-  if (d.sources && d.sources.length > 0) {
-    const pills = d.sources.map(s => el("button", {
-      class: "src-pill",
-      type: "button",
-      title: `Jump to ${s.label}: "${s.snippet || ""}"`,
-      onclick: () => jump(s)
-    },
-      el("span", { class: "src-pill-tag" }, `[${s.n}] ${s.label}`),
-      el("span", { class: "src-pill-text" }, s.snippet ? `"${s.snippet}"` : "")
-    ));
-    sourcesContainer = el("div", { class: "sources-tray" },
-      el("span", { class: "sources-label" }, "Verified Citations:"),
-      ...pills
-    );
-  }
-
-  return [
-    formattedContent,
-    sourcesContainer,
-    d.warning ? el("small", { class: "warn" }, d.warning) : null,
-    d.mode === "demo" && d.status === "ok" ? el("small", {}, "Demo mode: text taken directly from the course.") : null
-  ].filter(Boolean);
+  const by = Object.fromEntries(d.sources.map(s => [s.n, s]));
+  const parts = d.answer.split(/((?<![\w)])\[\d+\])/).map(p => {
+    const m = p.match(/^\[(\d+)\]$/);
+    if (!m) return p;
+    const s = by[m[1]];
+    return s ? el("button", { class: "cite", type: "button", title: s.label, onclick: () => jump(s) }, String(s.n)) : "";
+  });
+  const srcs = d.sources.map(s => el("button", { class: "src", type: "button", onclick: () => jump(s) },
+    el("b", {}, `[${s.n}] ${s.label}`), el("span", {}, s.snippet)));
+  return [el("span", {}, parts), ...srcs, d.warning ? el("small", { class: "warn" }, d.warning) : null,
+    d.mode === "demo" && d.status === "ok" ? el("small", {}, "Demo mode: text taken directly from the course.") : null].filter(Boolean);
 }
 
 function chat(scope, getTime) {
@@ -516,12 +376,9 @@ async function showCourse(id, openTab = "Ask") {
                     renderYTFallback(vidContainer, c);
                   }
                 },
-                onReady: () => {
-                  state.ytPlayer = ytPlayer;
-                }
+                onReady: () => {}
               }
             });
-            state.ytPlayer = ytPlayer;
             clearInterval(ytPoll);
             ytPoll = setInterval(() => {
               const curr = now();
