@@ -51,22 +51,23 @@ function answerBlock(d) {
     d.mode === "demo" && d.status === "ok" ? el("small", {}, "Demo mode: text taken directly from the course.") : null].filter(Boolean);
 }
 
+// ---------- course tutor chatbot -----------------------------------------------------------------
 function chat(scope, getTime) {
   const msgs = el("div", { class: "msgs" });
   const history = [];
   
   const botIntro = el("div", { class: "msg bot" },
-    el("b", { style: "display:block;margin-bottom:6px;color:var(--text-main);font-size:13px;letter-spacing:-0.01em" }, "Course Intelligence Assistant"),
-    el("span", {}, "Hello. I am strictly aligned with the lecture material up to your current playback time and verified course documents. How can I assist your study today?")
+    el("b", { style: "display:block;margin-bottom:4px;color:var(--primary)" }, "🤖 LearnMate Course Chatbot"),
+    el("span", {}, "Hello! I am your AI course tutor. I am strictly grounded in what you have watched up to the current timestamp and course documents. Ask me anything!")
   );
   msgs.append(botIntro);
 
-  const input = el("input", { placeholder: "Ask a specific question regarding the lecture...", maxlength: 500, required: true, "aria-label": "Your question" });
+  const input = el("input", { placeholder: "Ask chatbot a question about the video...", maxlength: 500, required: true, "aria-label": "Your question" });
   
-  const suggestions = el("div", { class: "chat-suggestions", style: "display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px" },
-    el("button", { class: "action-pill", type: "button", onclick: () => { input.value = "What was just covered in the lecture?"; form.requestSubmit(); } }, "Explain current topic"),
-    el("button", { class: "action-pill", type: "button", onclick: () => { input.value = "Summarize the key points covered so far"; form.requestSubmit(); } }, "Summarize progress"),
-    el("button", { class: "action-pill", type: "button", onclick: () => { input.value = "Clarify the core mechanism in simple terms"; form.requestSubmit(); } }, "Deconstruct core concept")
+  const suggestions = el("div", { class: "chat-suggestions", style: "display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px" },
+    el("button", { class: "action-pill", type: "button", onclick: () => { input.value = "What did the instructor just explain?"; form.requestSubmit(); } }, "💡 What was just explained?"),
+    el("button", { class: "action-pill", type: "button", onclick: () => { input.value = "Summarize the key points covered so far"; form.requestSubmit(); } }, "📝 Summarize so far"),
+    el("button", { class: "action-pill", type: "button", onclick: () => { input.value = "Explain the last concept in simple terms"; form.requestSubmit(); } }, "🔍 Simplify last concept")
   );
 
   const form = el("form", { class: "row", onsubmit: guard(async e => {
@@ -75,8 +76,8 @@ function chat(scope, getTime) {
     input.value = "";
     if (state.video) state.video.pause();
     const t = getTime();
-    msgs.append(el("div", { class: "msg user" }, q, t !== null ? el("small", {}, "Timestamp " + fmt(t)) : null));
-    const wait = el("div", { class: "msg bot" }, "Synthesizing verified course content...");
+    msgs.append(el("div", { class: "msg user" }, q, t !== null ? el("small", {}, "watched at " + fmt(t)) : null));
+    const wait = el("div", { class: "msg bot" }, "Thinking based on covered content...");
     msgs.append(wait); msgs.scrollTop = msgs.scrollHeight;
     try {
       const d = await api("/api/ask", { method: "POST", json: { course_id: state.course.id, question: q, scope, current_time: t, history: history.slice(-6) } });
@@ -85,16 +86,16 @@ function chat(scope, getTime) {
       else history.push({ role: "user", content: q }, { role: "assistant", content: d.answer });
     } catch (err) { wait.textContent = err.message; wait.classList.add("err"); }
     msgs.scrollTop = msgs.scrollHeight;
-  }) }, input, el("button", { class: "btn" }, "Submit"));
+  }) }, input, el("button", { class: "btn" }, "Send"));
 
   const lockNote = scope === "video" 
-    ? "Responses are restricted to lecture progress up to your current position." 
-    : "Responses are drawn exclusively from uploaded course documents.";
+    ? "🔒 Chatbot is strictly locked to what you've watched up to the current video timestamp." 
+    : "📄 Chatbot answers using your uploaded course documents.";
     
   return el("div", { class: "chatbot-container" },
-    el("div", { class: "chatbot-header-bar", style: "display:flex;align-items:center;justify-content:space-between;margin-bottom:10px" },
-      el("small", { class: "hint", style: "font-weight:500;color:var(--text-muted)" }, lockNote),
-      el("button", { class: "btn alt small", type: "button", style: "padding:3px 10px;font-size:11px", onclick: () => { msgs.replaceChildren(botIntro); history.length = 0; } }, "Clear Session")
+    el("div", { class: "chatbot-header-bar", style: "display:flex;align-items:center;justify-content:space-between;margin-bottom:8px" },
+      el("small", { class: "hint", style: "font-weight:600" }, lockNote),
+      el("button", { class: "btn alt small", type: "button", style: "padding:2px 8px;font-size:11px", onclick: () => { msgs.replaceChildren(botIntro); history.length = 0; } }, "Clear Chat")
     ),
     suggestions,
     msgs,
@@ -123,30 +124,20 @@ function quizUI(d) {
   return el("div", {}, d.warning ? el("small", { class: "warn" }, d.warning) : null, boxes, submit, el("h3", {}, result));
 }
 
-function studyTab(now) {
+function studyTab() {
   const out = el("div"); const course = state.course;
   const hasVideoCues = course.has_video && course.duration > 0;
-  const scopeSel = el("select", { "aria-label": "Study material" }, el("option", { value: hasVideoCues ? "video" : "docs" }, hasVideoCues ? "Video watched so far" : "Course documents"));
-  if (hasVideoCues && course.documents.length) scopeSel.append(el("option", { value: "docs" }, "Course documents"));
-  
-  const getStudyTime = () => {
-    if (scopeSel.value !== "video") return 0;
-    const current = now ? now() : 0;
-    if (current > 0) return current;
-    if (course.progress && course.progress.max_position > 0) return course.progress.max_position;
-    if (state.currentTime > 0) return state.currentTime;
-    return course.duration || 0;
-  };
-  
-  const base = () => ({ course_id: course.id, scope: scopeSel.value, current_time: getStudyTime() });
+  const scopeSel = el("select", { "aria-label": "Study material" }, el("option", { value: hasVideoCues ? "video" : "docs" }, hasVideoCues ? "Video watched so far" : "My documents"));
+  if (hasVideoCues && course.documents.length && !course.demo) scopeSel.append(el("option", { value: "docs" }, "My documents"));
+  const base = () => ({ course_id: course.id, scope: scopeSel.value, current_time: (scopeSel.value === "video" && state.video) ? state.video.currentTime : 0 });
   const run = (btn, label, fn) => guard(async () => {
     btn.disabled = true; out.replaceChildren(el("p", { class: "hint" }, "Working on " + label + "..."));
     try { await fn(); } catch (e) { out.replaceChildren(); throw e; } finally { btn.disabled = false; }
   });
   const show = d => out.replaceChildren(d.status === "ok" ? el("div", { class: "msg bot" }, ...answerBlock(d)) : el("div", { class: "msg bot nf" }, d.answer));
   const mk = (label, kind) => { const b = el("button", { class: "btn small" }, label); b.onclick = run(b, label.toLowerCase(), async () => show(await api("/api/study", { method: "POST", json: { ...base(), kind } }))); return b; };
-  const quizBtn = el("button", { class: "btn small" }, "Concept Assessment");
-  quizBtn.onclick = run(quizBtn, "a concept assessment based on covered concepts", async () => {
+  const quizBtn = el("button", { class: "btn small" }, "🎯 AI Smart Quiz");
+  quizBtn.onclick = run(quizBtn, "an AI-selected quiz based on covered concepts", async () => {
     const d = await api("/api/quiz", { method: "POST", json: { ...base(), count: 5 } });
     out.replaceChildren(d.status === "ok" ? quizUI(d) : el("div", { class: "msg bot nf" }, d.answer));
   });
@@ -161,103 +152,21 @@ function studyTab(now) {
 // ---------- documents ------------------------------------------------------------------
 function docsTab() {
   const c = state.course;
-  const banner = c.demo ? el("div", { class: "card", style: "border-left:4px solid var(--pop-purple);margin-bottom:16px" },
-    el("b", { style: "display:block;margin-bottom:4px;font-size:14px" }, "📚 Verified Demo Course Materials"),
-    el("p", { class: "hint", style: "margin:0;font-size:13px" },
-      "This course includes official lecture notes and a slide deck. The materials are synchronized with video playback. You can view or download the full files directly below, or study them as they unlock during playback."
-    )
-  ) : el("p", { class: "hint" }, "Upload syllabus documents, notes, or slides (.pdf, .pptx, .txt, .docx, .md, .csv). Files are parsed directly into verifiable context.");
-
-  let uploadRow = null;
-  if (!c.demo) {
-    const file = el("input", { type: "file", accept: ".pdf,.pptx,.txt,.md,.csv,.docx", "aria-label": "Document file" });
-    const up = el("button", { class: "btn small" }, "Upload");
-    up.onclick = guard(async () => {
-      if (!file.files[0]) throw new Error("Choose a file (.pdf, .pptx, .txt, .docx, .md, .csv) first.");
-      const fd = new FormData(); fd.append("file", file.files[0]);
-      up.disabled = true;
-      try { await api(`/api/courses/${c.id}/documents`, { method: "POST", form: fd }); toast("Uploaded."); await showCourse(c.id, "Documents"); } finally { up.disabled = false; }
-    });
-    uploadRow = el("div", { class: "row", style: "margin-bottom:16px" }, file, up);
-  }
-
-  const list = c.documents.length ? c.documents.map(d => {
-    const docUrl = d.url || (c.demo ? `/media/demo/${d.name}` : `/api/courses/${c.id}/documents/${d.id}/download`);
-    const isSlide = d.kind === "slide";
-    const isPdf = d.kind === "pdf";
-    const kindIcon = isSlide ? "📊 Presentation Deck" : isPdf ? "📄 PDF Document" : "📝 Text Document";
-    const pagesText = `${d.pages} ${isSlide ? "slides" : isPdf ? "pages" : "parts"}`;
-
-    const viewBtn = el("a", {
-      class: "btn small alt",
-      href: docUrl,
-      target: "_blank",
-      rel: "noopener noreferrer",
-      style: "margin-right:8px"
-    }, isSlide ? "Download .pptx ↗" : "Open / View ↗");
-
-    const deleteBtn = !c.demo ? el("button", {
-      class: "btn small alt",
-      style: "color:var(--status-danger)",
-      onclick: guard(async () => {
-        if (confirm(`Delete ${d.name}?`)) {
-          await api(`/api/courses/${c.id}/documents/${d.id}`, { method: "DELETE" });
-          await showCourse(c.id, "Documents");
-        }
-      })
-    }, "Delete") : el("span", { class: "badge", style: "font-size:11px" }, "Course Resource");
-
-    const actions = el("div", { style: "float:right;display:flex;align-items:center" }, viewBtn, deleteBtn);
-
-    const demoOutline = c.demo ? (d.name === "lecture_notes.pdf" ? el("details", { style: "margin-top:10px;font-size:12px;color:var(--text-muted)" },
-      el("summary", { style: "cursor:pointer;color:var(--primary);font-weight:600" }, "View notes chapter outline"),
-      el("ul", { style: "margin:8px 0 0 16px;line-height:1.7" },
-        el("li", {}, el("b", {}, "Page 1:"), " Lists and Indexing (fruits[0], fruits[-1]) • unlocks at 1:00"),
-        el("li", {}, el("b", {}, "Page 2:"), " Changing a List (append, insert, remove, pop) • unlocks at 2:00"),
-        el("li", {}, el("b", {}, "Page 3:"), " Slicing (fruits[1:3], start/end omission) • unlocks at 2:30"),
-        el("li", {}, el("b", {}, "Page 4:"), " Loops & Comprehensions ([x * x for x in range(5)]) • unlocks at 3:30")
-      )
-    ) : (d.name === "lecture_slides.pptx" ? el("details", { style: "margin-top:10px;font-size:12px;color:var(--text-muted)" },
-      el("summary", { style: "cursor:pointer;color:var(--primary);font-weight:600" }, "View slide deck outline"),
-      el("ul", { style: "margin:8px 0 0 16px;line-height:1.7" },
-        el("li", {}, el("b", {}, "Slide 1:"), " What is a List? • unlocks at 0:00"),
-        el("li", {}, el("b", {}, "Slide 2:"), " Indexing • unlocks at 0:30"),
-        el("li", {}, el("b", {}, "Slide 3:"), " Negative Indexing • unlocks at 1:00"),
-        el("li", {}, el("b", {}, "Slide 4:"), " Adding & Removing • unlocks at 2:00"),
-        el("li", {}, el("b", {}, "Slide 5:"), " Slicing Syntax • unlocks at 2:30"),
-        el("li", {}, el("b", {}, "Slide 6:"), " Loops & Comprehensions • unlocks at 3:30")
-      )
-    ) : null)) : null;
-
-    return el("div", { class: "card", style: "margin-bottom:12px" },
-      actions,
-      el("b", { style: "font-size:14px;display:block;margin-bottom:4px" }, d.name),
-      el("div", { class: "hint", style: "font-size:12px" }, `${kindIcon} • ${pagesText}`),
-      demoOutline
-    );
-  }) : [el("div", { class: "card hint" }, "No documents on record.")];
-
-  const analysis = !c.demo && c.documents.length ? el("div", {},
-    el("h3", { style: "margin-top:20px;margin-bottom:8px" }, "Document Analysis"),
-    chat("docs", () => null)
-  ) : (c.demo ? el("div", { class: "card", style: "margin-top:20px;background:var(--surface-raised)" },
-    el("h3", { style: "margin-bottom:6px;font-size:14px" }, "Timestamp-Synchronized Ingestion"),
-    el("p", { class: "hint", style: "margin:0" },
-      "In this demo lecture, these lecture notes and presentation slides are timestamp-synchronized. As you watch the video in the ",
-      el("b", {}, "Assistant tab"),
-      ", verified citations from both the video transcript and these documents are unlocked progressively. To upload your own documents or videos, click Overview and create a new course."
-    )
-  ) : null);
-
-  return el("div", {},
-    banner,
-    uploadRow,
-    el("h3", { style: "margin:16px 0 10px" }, `Course Documents (${c.documents.length})`),
-    list,
-    analysis
-  );
+  if (c.demo) return el("p", { class: "hint" }, "The demo course's PDF and slides (lecture_notes.pdf, lecture_slides.pptx) are unlocked by the video: they appear as sources in the Ask tab once you have watched that part. Create your own course to upload files.");
+  const file = el("input", { type: "file", accept: ".pdf,.pptx,.txt,.md,.csv,.docx", "aria-label": "Document file" });
+  const up = el("button", { class: "btn small" }, "Upload");
+  up.onclick = guard(async () => {
+    if (!file.files[0]) throw new Error("Choose a file (.pdf, .pptx, .txt, .docx, .md, .csv) first.");
+    const fd = new FormData(); fd.append("file", file.files[0]);
+    up.disabled = true;
+    try { await api(`/api/courses/${c.id}/documents`, { method: "POST", form: fd }); toast("Uploaded."); await showCourse(c.id, "Documents"); } finally { up.disabled = false; }
+  });
+  const list = c.documents.map(d => el("div", { class: "card" }, `${d.name} `, el("span", { class: "hint" }, `${d.pages} ${d.kind === "slide" ? "slides" : d.kind === "pdf" ? "pages" : "parts"}`),
+    el("button", { class: "btn small alt", style: "float:right", onclick: guard(async () => { await api(`/api/courses/${c.id}/documents/${d.id}`, { method: "DELETE" }); await showCourse(c.id, "Documents"); }) }, "Delete")));
+  return el("div", {}, el("p", { class: "hint" }, "Upload any document (PDF, Word docx, TXT, PPTX slides, Markdown). Gemini reads it directly and answers questions."),
+    el("div", { class: "row" }, file, up), list, c.documents.length ? el("h3", { style: "margin-top:16px" }, "Ask your documents") : null,
+    c.documents.length ? chat("docs", () => null) : null);
 }
-
 
 // ---------- mock interview ----------------------------------------------------------------
 function chips(list, cls) { return list.length ? list.map(x => el("span", { class: "chip " + cls }, x)) : el("span", { class: "hint" }, "none"); }
@@ -306,7 +215,45 @@ function renderYTFallback(container, c) {
 }
 
 function openKeyModal() {
-  /* System credentials configured in server environment */
+  const modal = $("key-modal");
+  const keyInput = el("input", { type: "password", placeholder: "nvapi-...", "aria-label": "API Key" });
+  const modelInput = el("input", { value: "openai/gpt-oss-20b", placeholder: "openai/gpt-oss-20b", "aria-label": "Model Name" });
+  const urlInput = el("input", { value: "https://integrate.api.nvidia.com/v1", placeholder: "https://integrate.api.nvidia.com/v1", "aria-label": "Base URL" });
+
+  const saveBtn = el("button", { class: "btn" }, "Save Settings");
+  const clearBtn = el("button", { class: "btn alt" }, "Clear Settings");
+  const closeBtn = el("button", { class: "btn alt small", style: "float:right" }, "Close");
+
+  closeBtn.onclick = () => { modal.style.display = "none"; };
+  saveBtn.onclick = guard(async () => {
+    const k = keyInput.value.trim();
+    if (!k) throw new Error("Please enter your API Key.");
+    const model = modelInput.value.trim() || "openai/gpt-oss-20b";
+    const base_url = urlInput.value.trim() || "https://integrate.api.nvidia.com/v1";
+    await api("/api/config/key", { method: "POST", json: { api_key: k, model, base_url } });
+    toast("NVIDIA NIM AI settings and key saved successfully!");
+    modal.style.display = "none";
+    await updateConfigUI();
+  });
+  clearBtn.onclick = guard(async () => {
+    await api("/api/config/key", { method: "DELETE" });
+    toast("API Key and custom settings cleared.");
+    modal.style.display = "none";
+    await updateConfigUI();
+  });
+
+  const box = el("div", { class: "modal-box" },
+    closeBtn,
+    el("h2", {}, "AI Model & Key Settings"),
+    el("p", { class: "hint", style: "margin:6px 0 14px" }, "Configure your API key and endpoint for ChatGPT OSS 20B or any OpenAI-compatible provider."),
+    el("label", {}, "API Key *"), keyInput,
+    el("label", {}, "Model Name"), modelInput,
+    el("label", {}, "Base URL / Endpoint"), urlInput,
+    el("div", { class: "row", style: "margin-top:18px" }, saveBtn, clearBtn)
+  );
+
+  put(modal, box);
+  modal.style.display = "flex";
 }
 
 // ---------- pages ---------------------------------------------------------------------------
@@ -422,9 +369,9 @@ async function showCourse(id, openTab = "Ask") {
   state.video = video;
 
   const quickActions = el("div", { class: "video-action-pills" },
-    video ? el("button", { class: "action-pill", type: "button", onclick: () => { video.currentTime = Math.max(0, video.currentTime - 10); } }, "-10s") : null,
-    video ? el("button", { class: "action-pill", type: "button", onclick: () => { video.currentTime = video.currentTime + 10; } }, "+10s") : null,
-    c.video_url ? el("a", { class: "action-pill", href: c.video_url, target: "_blank", rel: "noreferrer" }, "Source Video") : null
+    video ? el("button", { class: "action-pill", type: "button", onclick: () => { video.currentTime = Math.max(0, video.currentTime - 10); } }, "⏮ -10s") : null,
+    video ? el("button", { class: "action-pill", type: "button", onclick: () => { video.currentTime = video.currentTime + 10; } }, "⏭ +10s") : null,
+    c.video_url ? el("a", { class: "action-pill", href: c.video_url, target: "_blank", rel: "noreferrer" }, "🌐 Source Link ↗") : null
   );
 
   const videoHeroCard = el("div", { class: "video-hero-card" },
@@ -433,12 +380,12 @@ async function showCourse(id, openTab = "Ask") {
       el("div", { class: "video-title-header" },
         el("h1", { class: "course-main-title" }, c.title),
         el("div", { class: "video-badges" },
-          el("span", { class: "badge live" }, c.has_video ? (c.video_type === "youtube" ? "YouTube Stream" : c.video_type === "local" ? "Local Media" : "Direct Stream") : "Document Material"),
-          c.duration > 0 ? el("span", { class: "badge" }, `${fmt(c.duration)} total`) : null
+          el("span", { class: "badge live" }, c.has_video ? (c.video_type === "youtube" ? "📺 YouTube" : c.video_type === "local" ? "💻 PC Video" : "🌐 Web Stream") : "📄 Docs"),
+          c.duration > 0 ? el("span", { class: "badge" }, `⏱ ${fmt(c.duration)} total`) : null
         )
       ),
       el("div", { class: "video-toolbar" },
-        el("div", { class: "playback-status" }, "Position: ", ph),
+        el("div", { class: "playback-status" }, "Playback time: ", ph),
         quickActions
       ),
       (c.has_video && c.duration > 0) ? el("div", { class: "bar", title: c.progress.percent_watched + "% watched" }, el("i", { style: `width:${c.progress.percent_watched}%` })) : null
@@ -447,22 +394,22 @@ async function showCourse(id, openTab = "Ask") {
 
   const hasVideoCues = c.has_video && c.duration > 0;
   const tabs = hasVideoCues ? [
-    { id: "Ask", label: "Assistant" },
-    { id: "Study", label: "Study Tools" },
-    { id: "Documents", label: "Documents" },
-    { id: "Interview", label: "Interview" }
+    { id: "Ask", label: "💬 AI Chatbot" },
+    { id: "Study", label: "📚 Study Tools" },
+    { id: "Documents", label: "📄 Documents" },
+    { id: "Interview", label: "🎙️ Interview" }
   ] : [
-    { id: "Documents", label: "Documents" },
-    { id: "Ask", label: "Assistant" },
-    { id: "Study", label: "Study Tools" },
-    { id: "Interview", label: "Interview" }
+    { id: "Documents", label: "📄 Documents" },
+    { id: "Ask", label: "💬 AI Chatbot" },
+    { id: "Study", label: "📚 Study Tools" },
+    { id: "Interview", label: "🎙️ Interview" }
   ];
 
   const body = el("div", { class: "tab" }), bar = el("div", { class: "tabs", role: "tablist" });
   const open = tabObj => {
     bar.querySelectorAll("button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.id === tabObj.id)));
     const chatScope = (tabObj.id === "Ask" && hasVideoCues) ? "video" : "docs";
-    body.replaceChildren(tabObj.id === "Ask" ? chat(chatScope, now) : tabObj.id === "Study" ? studyTab(now) : tabObj.id === "Documents" ? docsTab() : interviewTab());
+    body.replaceChildren(tabObj.id === "Ask" ? chat(chatScope, now) : tabObj.id === "Study" ? studyTab() : tabObj.id === "Documents" ? docsTab() : interviewTab());
     // Update URL hash without breaking history
     const targetHash = `#/course/${c.id}/${tabObj.id.toLowerCase()}`;
     if (location.hash !== targetHash) {
@@ -476,14 +423,13 @@ async function showCourse(id, openTab = "Ask") {
   });
 
   const panelHeader = el("div", { class: "panel-header" },
-    el("h3", {}, "Course Assistant"),
-    el("span", { class: "panel-status-pill" }, "Verified Knowledge")
+    el("h3", {}, "🤖 Gemini AI Assistant")
   );
 
   view.append(
     el("div", { class: "workspace-nav" },
-      el("a", { href: "#/", class: "back-link" }, "Overview"),
-      el("span", { class: "badge" }, `${c.documents.length} documents on record`)
+      el("a", { href: "#/", class: "back-link" }, "← Back to Workspace"),
+      el("span", { class: "badge" }, c.documents.length + " documents loaded")
     ),
     el("div", { class: "course-view" },
       videoHeroCard,
@@ -510,27 +456,27 @@ async function showDashboard() {
   );
 
   const courseCards = courses.map(c => {
-    const typeLabel = c.has_video ? (c.video_type === "youtube" ? "YouTube Stream" : c.video_type === "local" ? "Local Video" : "Direct Stream") : "Document Collection";
+    const typeLabel = c.has_video ? (c.video_type === "youtube" ? "YouTube video" : c.video_type === "local" ? "Local PC video" : "Web video") : "Documents only";
     return el("div", { class: "course-card" },
       el("div", { class: "course-card-body" },
         el("div", { class: "meta", style: "margin-bottom:8px" }, el("span", { class: "meta-pill" }, typeLabel)),
         el("h3", {}, c.title),
-        el("div", { class: "meta", style: "margin-top:10px" },
-          el("span", {}, `${c.documents.length} documents`),
-          el("span", { class: "meta-sep" }, "/"),
-          el("span", {}, `${c.progress.questions} inquiries`)
+        el("div", { class: "meta", style: "margin-top:8px" },
+          el("span", {}, `📄 ${c.documents.length} docs`),
+          el("span", {}, "•"),
+          el("span", {}, `💬 ${c.progress.questions} questions`)
         ),
         (c.has_video && c.duration > 0) ? el("div", { class: "bar", title: c.progress.percent_watched + "% watched" }, el("i", { style: `width:${c.progress.percent_watched}%` })) : null
       ),
       el("div", { class: "acts" },
-        el("a", { class: "btn", href: "#/course/" + c.id }, "Open Workspace"),
+        el("a", { class: "btn", href: "#/course/" + c.id }, "Watch & Learn →"),
         c.demo ? null : el("button", { class: "btn alt small", onclick: guard(async () => { if (confirm("Delete this course and its files?")) { await api("/api/courses/" + c.id, { method: "DELETE" }); showDashboard(); } }) }, "Delete")
       )
     );
   });
 
-  const title = el("input", { name: "title", placeholder: "e.g., Computer Systems Architecture", maxlength: 80, required: true });
-  const url = el("input", { name: "video_url", placeholder: "https://www.youtube.com/watch?v=... or direct video link" });
+  const title = el("input", { name: "title", placeholder: "e.g., Introduction to Computer Science", maxlength: 80, required: true });
+  const url = el("input", { name: "video_url", placeholder: "https://www.youtube.com/watch?v=... or direct MP4 URL" });
   const vidFile = el("input", { type: "file", name: "video_file", accept: ".mp4,.webm,.mkv,.mov,.avi" });
   const tr = el("input", { type: "file", name: "transcript", accept: ".srt,.vtt" });
   const form = el("form", { onsubmit: guard(async e => {
@@ -544,40 +490,45 @@ async function showDashboard() {
     location.hash = "#/course/" + c.id;
   }) },
     el("label", {}, "Course Title *"), title,
-    el("label", {}, "Video Link (YouTube URL, Shorts, or Web Link)"), url,
-    el("label", {}, "Or Local File (.mp4, .webm, .mkv, .mov)"), vidFile,
-    el("label", {}, "Transcript File (.srt or .vtt - Optional)"), tr,
-    el("p", { class: "hint", style: "font-size:12px;margin:3px 0 12px" }, "Note: YouTube transcripts are extracted automatically whenever available."),
-    el("p", { style: "margin-top:20px" }, el("button", { class: "btn" }, "Create Course")));
+    el("label", {}, "Option A: Video Link (YouTube watch link, Shorts, Vimeo, or Web URL)"), url,
+    el("label", {}, "Option B: Local Video File from PC (.mp4, .webm, .mkv, .mov)"), vidFile,
+    el("label", {}, "Transcript File (.srt or .vtt - Optional: YouTube transcripts are fetched automatically!)"), tr,
+    el("p", { class: "hint", style: "font-size:12px;margin:2px 0 10px" }, "Tip: For YouTube links, transcripts are extracted automatically from the video captions if available."),
+    el("p", { style: "margin-top:18px" }, el("button", { class: "btn" }, "✨ Create Course")));
 
   view.append(
     el("div", { class: "dashboard-header" },
-      el("h1", {}, "Academic Workspace"),
-      el("p", { class: "hint", style: "font-size:14px;margin-top:6px" }, "Timestamp-indexed video study with strict grounding, revision synthesis, and adaptive evaluations.")
+      el("h1", {}, "Learning Workspace"),
+      el("p", { class: "hint", style: "font-size:14px;margin-top:4px" }, "Watch interactive lectures, ask Gemini AI questions, generate revision notes, and take adaptive quizzes.")
     ),
     el("div", { class: "stats" },
-      statCard("COURSES", courses.length, "Active Modules"),
-      statCard("RETENTION", avg + "%", "Lecture Completion"),
-      statCard("ACCURACY", qt ? Math.round(100 * qs / qt) + "%" : "--", "Assessment Rating"),
-      statCard("SESSIONS", courses.reduce((a, c) => a + c.progress.interviews.length, 0), "Interviews Completed")
+      statCard("📚", courses.length, "Total Courses"),
+      statCard("🎬", avg + "%", "Average Watched"),
+      statCard("🎯", qt ? Math.round(100 * qs / qt) + "%" : "-", "Quiz Average"),
+      statCard("🎙️", courses.reduce((a, c) => a + c.progress.interviews.length, 0), "Interviews Completed")
     ),
-    el("h2", { style: "margin-bottom:16px" }, "Course Modules"),
+    el("h2", { style: "margin-bottom:16px" }, "Your Courses"),
     el("div", { class: "courses-grid" }, ...courseCards),
-    el("details", { class: "add" }, el("summary", {}, "New Course Module"), form)
+    el("details", { class: "add" }, el("summary", {}, "➕ Add New Course"), form)
   );
 }
 
 async function updateConfigUI() {
   try {
-    const cfg = await api("/api/config");
-    const m = $("mode"), kBtn = $("key-btn");
+    const cfg = await api("/api/config"), m = $("mode"), kBtn = $("key-btn");
+    const modelName = cfg.model || "openai/gpt-oss-20b";
+    const modeText = cfg.mode === "live" ? `✨ AI Live (${modelName})` : "💡 Demo Mode";
     if (m) {
-      m.style.display = "none";
+      m.textContent = modeText;
+      if (cfg.mode === "live") m.classList.add("live"); else m.classList.remove("live");
     }
     if (kBtn) {
-      kBtn.style.display = "none";
+      const kText = cfg.has_user_key ? "🔑 API Settings (Active)" : "🔑 Set API Key & Model";
+      const keySpan = kBtn.querySelector(".key-text");
+      if (keySpan) keySpan.textContent = kText; else kBtn.textContent = kText;
+      if (cfg.has_user_key) kBtn.classList.add("live"); else kBtn.classList.remove("live");
     }
-  } catch (e) { /* silent background sync */ }
+  } catch (e) { toast(e.message); }
 }
 
 async function init() {

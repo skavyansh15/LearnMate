@@ -8,18 +8,11 @@
 </head>
 <body>
 <header class="top">
-  <div class="top-content">
-    <a href="#/" class="brand">
-      <span class="brand-mark"></span>
-      <span class="brand-text">LEARNMATE</span>
-    </a>
-    <div class="header-status">
-      <span class="status-indicator"></span>
-      <span class="status-label">Studio Active</span>
-    </div>
-  </div>
+  <a href="#/" class="brand">Learn<mark>Mate</mark></a>
+  <button id="key-btn" class="badge key-badge" type="button" title="Configure AI Key & Model">🔑 Set API Key & Model</button>
+  <span id="mode" class="badge" title="Demo mode answers come from the course text without an AI service"></span>
 </header>
-<div id="key-modal" style="display:none"></div>
+<div id="key-modal" class="modal-backdrop" style="display:none"></div>
 <main id="view" aria-live="polite"></main>
 <div id="toast" role="status"></div>
 <script src="https://www.youtube.com/iframe_api"></script>
