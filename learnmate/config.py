@@ -21,11 +21,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-20b")  # NVIDIA model: openai
 FORCE_DEMO = os.getenv("DEMO_MODE", "") == "1"           # DEMO_MODE=1 ignores the key
 
 # ---- Web app ----
-_raw_secret = os.getenv("SECRET_KEY", "").strip()
-if not _raw_secret or _raw_secret in ("change-me", "learnmate-secret-key-3.8-flash-ai", "secret", "dev"):
-    SECRET_KEY = secrets.token_hex(32)
-else:
-    SECRET_KEY = _raw_secret
+SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_hex(32)  # set it in production!
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "") == "1"          # set to 1 when served over https
 
 # ---- Cost control ----

@@ -71,8 +71,15 @@ def visible_chunks(course, scope, t):
                             "Upload a transcript or document to ask questions.")
         if t is None or t < 0:
             raise UserError("bad_time", "current_time is required for video questions.")
-        # Strictly enforce playback time cutoff for all video types (including YouTube)
-        video_chunks = [c for c in course["chunks"] if c.get("unlock") is not None and c["unlock"] <= t]
+        # For YouTube videos we cannot reliably read the playback position from the browser,
+        # so we use the full video duration as the effective time — all chunks are visible.
+        is_youtube = course.get("video_type") == "youtube"
+        effective_t = t
+        if is_youtube:
+            # Use full duration so all chunks are available regardless of watch position
+            last_cue_end = course["cues"][-1]["end"] if course.get("cues") else t
+            effective_t = max(t, last_cue_end)
+        video_chunks = [c for c in course["chunks"] if c.get("unlock") is not None and c["unlock"] <= effective_t]
         # Include documents unlocked from the start so learners can ask about course materials
         return video_chunks + doc_chunks
     if scope == "docs":
@@ -142,9 +149,6 @@ def verify(raw, items, allow_uncited=False):
     raw = (raw or "").strip()
     if not raw or "NOT_FOUND" in raw:
         return not_found()
-    # Normalize common LLM citation variants like (Source 1), [Source 1], (Ref 1), (1) to [1]
-    raw = re.sub(r"(?:\[|\()(?:Source|Context|Ref|Evidence)\s*(\d+)(?:\]|\))", r"[\1]", raw, flags=re.I)
-    raw = re.sub(r"\((?:source\s*)?(\d+)\)", r"[\1]", raw, flags=re.I)
     valid = {it["n"]: it for it in items}
     cited = []
 

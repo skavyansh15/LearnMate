@@ -1,130 +1,74 @@
 # LearnMate AI
 
-> **Interactive Video Learning Companion**: Ask questions while lecture videos play and receive cited, spoiler-free answers strictly restricted to content up to your current playback time. Includes adaptive AI tutoring, lecture summaries, concept comparison, smart quizzes, document parsing (PDF, PPTX, DOCX, TXT), and mock interviews with explainable scorecards.
+A beginner-friendly learning platform: **ask questions while a lecture video plays and get cited answers that never reveal anything beyond the current playback time**, study tools (summary, revision notes, quiz, concept comparison), your own PDF / PPTX / TXT documents with exact page, slide or line citations, and an adaptive text **mock interview** with an explainable scorecard.
 
-Powered by a lightweight, clean architecture: **HTML5, CSS3, Vanilla JS, Python Flask, BM25 Keyword Search, PyMuPDF, python-pptx, and NVIDIA NIM (`openai/gpt-oss-20b`)** or any OpenAI-compatible provider.
+Plain HTML + CSS + JavaScript, Python **Flask**, **PyMuPDF**, **python-pptx**, and **one** configurable AI API. No React, no database server, no vector database.
 
----
-
-## 🚀 Quickstart (No API Key Required)
-
-Run the fully offline demo in under 2 minutes:
+## Run it (5 minutes, no API key needed)
 
 ```bash
 python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
+.venv\Scripts\activate            # Windows      (Mac/Linux: source .venv/bin/activate)
 pip install -r requirements.txt
-python app.py
-```
-Open **http://127.0.0.1:5000** in your browser.
-
-- You start in **Demo Mode**: all answers, quizzes, and study tools run offline using the bundled lecture (*"Python Lists"* — 8 video segments + synchronized lecture notes and slides).
-- Offline answers extract exact sentences from the lecture transcript and provide timestamp jump citations.
-
----
-
-## ⚡ Enable Real AI (NVIDIA NIM or Any Provider)
-
-1. Copy `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-2. Configure your credentials in `.env`:
-   ```ini
-   LLM_API_KEY=your_nvidia_api_key_here
-   LLM_BASE_URL=https://integrate.api.nvidia.com/v1
-   LLM_MODEL=openai/gpt-oss-20b
-   ```
-3. Restart `python app.py`. The assistant automatically activates live AI intelligence.
-
----
-
-## 🎬 What to Try (Judge Walkthrough)
-
-1. **Spoiler-Safe Playback Test**:
-   - Open the lecture module.
-   - At timestamp `0:30`, ask: *"How do I add an item to a list?"*
-   - **Result**: Polite refusal (*"That hasn't been covered yet in what you've watched so far! Please keep watching the video to reach this topic."* — taught at 1:30).
-   - Advance playhead past `1:40` and ask again: instant cited explanation with a `[1]` badge. Click the badge to jump the player to that exact cue.
-2. **YouTube Video & Auto-Subtitles**:
-   - Create a new course with a YouTube link (e.g. `https://www.youtube.com/watch?v=...`).
-   - Leave the subtitle file empty: LearnMate extracts captions and builds timestamped cues automatically.
-3. **Upload Your Own Materials**:
-   - In **Documents**, upload a `.pdf`, `.pptx`, `.docx`, or `.txt` file.
-   - Query your syllabus or slides directly with exact page/slide citations.
-4. **Adaptive Mock Interview**:
-   - Open the **Interview** tab.
-   - Answering with gaps generates an adaptive follow-up. A strong answer progresses to a higher-level question.
-   - Upon completion, view the explainable scorecard detailing covered competencies and revision gaps.
-
----
-
-## 🛡️ Core Architecture & Integrity Guarantees
-
-```mermaid
-flowchart TD
-    User["Learner Client<br/>(Playhead Time t)"] -->|POST /api/ask| Flask["Flask API Layer<br/>(app.py)"]
-    Flask --> Ingest["Ingestion & Validation<br/>(ingest.py)"]
-    Flask --> Gate["Strict Time Gate Filter<br/>(assistant.py)"]
-    
-    subgraph Core Retrieval Engine
-        Gate -->|"Chunk Unlock <= t Only"| BM25["BM25 Keyword Search<br/>(search.py)"]
-        BM25 --> Evidence["Ranked Context Snippets [1]..[n]"]
-    end
-    
-    Evidence --> Verify["Citation Verification & Grounding"]
-    Verify -->|Live AI| LLM["NVIDIA NIM Client<br/>(openai/gpt-oss-20b)"]
-    Verify -->|Demo Mode| SentenceExtract["Deterministic Sentence Matcher"]
-    
-    LLM --> VerifyAnswer["Grounding Validation"]
-    SentenceExtract --> VerifyAnswer
-    VerifyAnswer --> Output["Cited Response + Video Jump Cues"]
+python app.py                     # open http://127.0.0.1:5000
 ```
 
-| Guarantee | Technical Implementation |
-|:---|:---|
-| **Zero Spoilers / Time-Gated** | Chunks are filtered *before* search. Any cue with `unlock > current_time` is strictly excluded from context. |
-| **No Hallucinated Citations** | The verification engine discards fabricated source numbers and attaches only verified retrieved chunks. |
-| **Unsupported Questions** | Questions lacking keyword overlap return polite refusals without calling the LLM, preventing hallucinations and conserving tokens. |
-| **Secret Isolation** | API credentials live exclusively on the backend / `.env`, are scrubbed from all error logs, and are never exposed in client bundles. |
-| **Upload Safety** | Magic-byte checks, zip-bomb size checks, and sanitized temporary file handlers defend against corrupted or malicious uploads. |
+You start in **demo mode**: everything works offline on the built-in sample course ("Python Lists", an 8 x 30 s lecture + PDF + slides). Answers are sentences taken straight from the course text with citations.
 
----
+### Turn on the real AI (optional)
 
-## 🚢 Deployment Guide
+1. `copy .env.example .env` (Mac/Linux: `cp`).
+2. Put your key in `LLM_API_KEY=`. The defaults point at Google Gemini's OpenAI-compatible endpoint; **check the model name** in `LLM_MODEL` against your provider's current list.
+3. Any OpenAI-compatible service works (OpenAI, Groq, DeepSeek, ...): change `LLM_BASE_URL` and `LLM_MODEL`. Nothing else changes.
+4. Restart. The badge in the top bar changes to "AI live".
 
-LearnMate uses lightweight JSON persistence organized by anonymous session tokens in `data/users/<uid>/`.
+## What to try (2-minute demo script)
 
-### Option A: Render (Recommended)
-- **Service Type**: Web Service
-- **Environment**: Python
-- **Build Command**: `pip install -r requirements.txt`
-- **Start Command**: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120`
-- **Environment Variables**:
-  - `LLM_API_KEY`: Your NVIDIA NIM or provider key
-  - `LLM_BASE_URL`: `https://integrate.api.nvidia.com/v1`
-  - `LLM_MODEL`: `openai/gpt-oss-20b`
-  - `SECRET_KEY`: A cryptographically random hex string
-  - `COOKIE_SECURE`: `1`
-- *Note*: Use 1 worker to preserve in-process rate limiting and file lock coordination. For multi-month course retention across restarts, attach a Render Persistent Disk mounted to `DATA_DIR`.
+1. Open the demo course. Play to ~0:40, pause, ask **"How do I add an item to a list?"** -> *Not found in the content so far* (it is taught at 1:30).
+2. Play past 1:40 and ask again -> a cited answer. Click the yellow citation to jump the video to that moment.
+3. **Study** tab -> *Revision notes*, *Quiz me*, and *Compare* "remove" vs "pop".
+4. **Add your own course** (title only), upload a PDF/PPTX/TXT in **Documents**, ask about it: citations read like `notes.pdf p.3` / `deck.pptx slide 5` / `notes.txt lines 12-20`.
+5. **Interview** tab -> answer 4 questions; try a weak answer to see the follow-up, a strong one to see a harder question, then read the scorecard ("How was this scored?").
 
-### Option B: VPS / Docker
-Run behind Nginx with SSL termination. Set `COOKIE_SECURE=1` and ensure the storage directory has appropriate read/write permissions.
+## How the key promises are kept
 
----
+| Promise | How |
+|---|---|
+| Never reveals content beyond the playhead | The time filter runs **before** search. Video text is cut line-by-line at the playhead, so a line that has not started is never searched or sent to the AI. Tested at 7 playhead positions x 7 questions. |
+| Never invents citations | Sources shown are the retrieved chunks. Citation numbers the AI makes up are dropped; an answer with no valid citation becomes "not found". |
+| Missing evidence is handled | No chunk with enough of the question's key words -> "not found", **without calling the AI** (also saves money). |
+| Protect the API key | Only read from environment / `.env` (git-ignored), never sent to the browser, scrubbed from error messages. |
+| Validate uploads | Extension + real file signature, size/page/text limits, zip-bomb check, nothing is stored except extracted text. |
+| Control AI cost | Max tokens, evidence capped at 6000 characters, identical requests cached, per-user daily AI call limit (then demo answers), per-minute rate limit, one interview feedback call at most. |
+| Users' files stay separate | Each browser gets a random anonymous id; data lives in `data/users/<id>/`; ids are validated against path tricks; tested with two users. |
 
-## 🧪 Test Suite
+## Project map
 
-Run the full automated test suite:
-
-```bash
-python -m pytest
+```
+app.py          Flask routes (thin)            assistant.py  Q&A, summary, notes, quiz, compare
+interview.py    mock interview + scorecard     search.py     tiny BM25 keyword search
+ingest.py       SRT/VTT, PDF, PPTX, TXT -> chunks + upload validation
+llm.py          the ONLY file that calls an AI service      store.py  JSON files, progress, limits
+static/         index.html, style.css, app.js   demo_course/ sample data     tools/make_demo.py  rebuild it
+tests/          72 automated tests              evaluation/   run_eval.py -> docs/EVALUATION.md
+docs/           ARCHITECTURE, API, EVALUATION, DEPLOYMENT
 ```
 
-**Results**:
-- 80 automated unit and integration tests passing.
-- Validates YouTube timestamp boundaries, `.docx`/`.pdf`/`.pptx` parsing, BM25 indexing, LLM cache partitioning, CSRF headers, and rate-limiting.
+Run the tests: `python -m unittest discover -s tests` (no API key, no internet needed).
+
+## Using your own lecture
+
+Dashboard -> **Add your own course**: a direct `.mp4`/`.webm` link (YouTube page links do not work) plus a matching `.srt` or `.vtt` transcript. Timestamps must line up with the video. Automatic transcription and direct video upload are **not** included.
+
+## Honest limits
+
+- **Uploaded PDFs/slides are not tied to the video timeline.** They are searched in the *Documents* tab. Only the demo course has PDF/slide pages unlocked at video times (`demo_course/mapping.json`, set by hand).
+- Search is keyword-based (no synonyms): "delete" will not find text that says "remove".
+- Demo-mode answers are extracted sentences, not written explanations. The interview score is word-matching, so a correct answer in different words can score low. The scorecard says so.
+- Scanned PDFs / image-only slides have no text (no OCR). YouTube links, login/accounts, and payments are not included.
+- Data is stored in local JSON files: fine for a demo, not for thousands of users.
+
+## What is verified (and what is not)
+
+Verified here: 72 automated tests pass; the server was run and all endpoints exercised over real HTTP in demo mode; demo-mode evaluation in `docs/EVALUATION.md`.
+**Not verified:** answer quality with a real AI model (calls are mocked in tests), reading real PDFs with PyMuPDF (the library was not installable where this was built: the page/label logic is tested with a stand-in and one test runs automatically once PyMuPDF is installed, plus the demo PDF's text was cross-checked with `pdftotext`), the UI in a real browser / on a phone (JavaScript was syntax-checked only), and deployment to a host. Run the tests and click through the demo script on your machine before presenting.

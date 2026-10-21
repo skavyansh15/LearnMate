@@ -1,4 +1,4 @@
-import logging
+"""LearnMate AI - Flask backend. Run:  python app.py   (or: flask --app app run)"""
 import re
 import time
 from pathlib import Path
@@ -13,9 +13,6 @@ import interview
 import llm
 import store
 from errors import UserError
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-logger = logging.getLogger("learnmate")
 
 
 def create_app():
@@ -352,49 +349,6 @@ def create_app():
     @app.get("/api/interview/<iid>/scorecard")
     def interview_scorecard(iid):
         return interview.scorecard(uid(), iid, api_key=session.get("api_key"), base_url=session.get("base_url"), model=session.get("model"))
-
-    # ---------- LMS integration (Canvas / Moodle / Blackboard) --------------------
-    @app.post("/api/lms/launch")
-    def lms_launch():
-        """Launch endpoint for external LMS tools (LTI 1.3 / LTI Advantage simulation).
-        Accepts learner identity, LMS course id, and optional role."""
-        d = body()
-        lms_user = str(d.get("lms_user_id") or "").strip()
-        lms_course = str(d.get("lms_course_id") or "").strip()
-        role = str(d.get("role") or "learner").lower()
-        if not lms_user:
-            raise UserError("bad_lms_user", "lms_user_id is required for LMS launch.", status=400)
-        # Bind LMS user to an isolated session space
-        session["lms_user_id"] = lms_user
-        session["lms_course_id"] = lms_course
-        session["lms_role"] = role
-        logger.info(f"LMS_LAUNCH user={lms_user} course={lms_course} role={role}")
-        return {
-            "status": "connected",
-            "lms_user_id": lms_user,
-            "lms_course_id": lms_course,
-            "role": role,
-            "courses_available": [summary(c) for c in store.list_courses(uid())]
-        }
-
-    @app.get("/api/lms/export/<cid>")
-    def lms_export(cid):
-        """Export learner metrics, quiz grades, and interview performance for LMS gradebook sync."""
-        c = store.get_course(uid(), cid)
-        progress = store.get_progress(uid()).get(cid, {})
-        quiz_records = progress.get("quizzes", [])
-        avg_quiz = round(100 * sum(q["score"] for q in quiz_records) / sum(q["total"] for q in quiz_records)) if quiz_records else None
-        return {
-            "course_id": cid,
-            "course_title": c["title"],
-            "lms_user_id": session.get("lms_user_id", uid()),
-            "watched_seconds": progress.get("max_position", 0),
-            "quizzes_completed": len(quiz_records),
-            "quiz_average_percent": avg_quiz,
-            "interviews_completed": len(progress.get("interviews", [])),
-            "interview_scores": progress.get("interviews", []),
-            "synced_at": time.time()
-        }
 
     return app
 

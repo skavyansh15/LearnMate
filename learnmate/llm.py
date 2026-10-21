@@ -28,17 +28,15 @@ def complete(system, user, max_tokens, api_key=None, base_url=None, model=None):
     effective_model = model or config.LLM_MODEL
     effective_base_url = (base_url or config.LLM_BASE_URL).rstrip("/")
     
-    # Secure cache key factoring in endpoint, model, tokens, system, and user payload
-    key = hashlib.sha256(f"{effective_base_url}|{effective_model}|{max_tokens}|{system}|{user}".encode()).hexdigest()
+    key = hashlib.sha256(f"{effective_model}|{max_tokens}|{system}|{user}".encode()).hexdigest()
     if key in _cache:
         _cache.move_to_end(key)
         return _cache[key]
         
-    # Calibrated temperature: precise for structured/educational grounding (0.7)
     body = {
         "model": effective_model,
-        "temperature": 0.7,
-        "top_p": 0.95,
+        "temperature": 1.0,
+        "top_p": 1.0,
         "max_tokens": min(max_tokens, 4096),
         "stream": False,
         "messages": [
@@ -52,7 +50,7 @@ def complete(system, user, max_tokens, api_key=None, base_url=None, model=None):
     max_attempts = 4
     for attempt in range(max_attempts):
         try:
-            r = requests.post(url, json=body, timeout=75, headers={"Authorization": f"Bearer {effective_key}"})
+            r = requests.post(url, json=body, timeout=50, headers={"Authorization": f"Bearer {effective_key}"})
         except requests.RequestException:
             if attempt < max_attempts - 1:
                 time.sleep(2 ** attempt)

@@ -1,13 +1,6 @@
 .env
-.env.*
-!.env.example
-
 data/
-uploads/
-logs/
 __pycache__/
-*.py[cod]
-.pytest_cache/
+*.pyc
 .venv/
-venv/
 *.tmp

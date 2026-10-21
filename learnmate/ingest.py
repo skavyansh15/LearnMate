@@ -223,24 +223,12 @@ def extract_document(filename, data):
             raise UserError("bad_txt", "The text file is not UTF-8.", "Save it as UTF-8 and upload again.")
         chunks, kind, count = chunks_from_txt(text, filename), "txt", text.count("\n") + 1
     elif ext == ".docx":
-        # Extract text from docx zip XML preserving paragraphs and runs
+        # Extract text from docx zip xml without extra heavy deps
         try:
             z = zipfile.ZipFile(io.BytesIO(data))
-            if "word/document.xml" not in z.namelist():
-                raise UserError("bad_docx", "Invalid Word file structure.", "Save it as .docx or .pdf.")
             xml_content = z.read("word/document.xml").decode("utf-8")
-            # Group text by paragraph (<w:p>) to preserve sentence structure
-            paragraphs = []
-            for p_match in re.findall(r"<w:p\b[^>]*>(.*?)</w:p>", xml_content):
-                p_text = "".join(re.findall(r"<w:t\b[^>]*>(.*?)</w:t>", p_match)).strip()
-                if p_text:
-                    paragraphs.append(p_text)
-            text = "\n\n".join(paragraphs).strip()
-            if not text:
-                raise UserError("no_text", "No readable text was found in this Word document.")
+            text = " ".join(re.findall(r"<w:t[^>]*>(.*?)</w:t>", xml_content))
             chunks, kind, count = chunks_from_txt(text, filename), "doc", max(1, len(text) // 1500)
-        except UserError:
-            raise
         except Exception:
             raise UserError("bad_docx", "Could not read Word document.", "Save it as .docx or .pdf.")
     else:
