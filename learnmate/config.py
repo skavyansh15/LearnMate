@@ -5,7 +5,11 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    _env_file = Path(__file__).parent / ".env"
+    if _env_file.exists():
+        load_dotenv(_env_file)
+    else:
+        load_dotenv()
 except ImportError:  # python-dotenv is optional
     pass
 
@@ -13,23 +17,28 @@ BASE = Path(__file__).parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE / "data"))   # per-user files live here
 USERS_DIR = DATA_DIR / "users"
 DEMO_DIR = BASE / "demo_course"                          # shipped sample course (read-only)
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()    # optional PostgreSQL (e.g. Supabase / Neon)
 
 # ---- ONE configurable AI API (any OpenAI-compatible /chat/completions endpoint) ----
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")               # empty -> demo mode
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")  # NVIDIA NIM endpoint
-LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-20b")  # NVIDIA model: openai/gpt-oss-20b
+LLM_MODEL = os.getenv("LLM_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")  # verified, responsive NVIDIA NIM model
 FORCE_DEMO = os.getenv("DEMO_MODE", "") == "1"           # DEMO_MODE=1 ignores the key
 
 # ---- Web app ----
-SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_hex(32)  # set it in production!
+_raw_secret = os.getenv("SECRET_KEY", "").strip()
+if not _raw_secret or _raw_secret in ("change-me", "learnmate-secret-key-3.8-flash-ai", "secret", "dev"):
+    SECRET_KEY = secrets.token_hex(32)
+else:
+    SECRET_KEY = _raw_secret
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "") == "1"          # set to 1 when served over https
 
 # ---- Cost control ----
 DAILY_AI_CALLS = int(os.getenv("DAILY_AI_CALLS", "100")) # per user per day; then demo answers
 RATE_PER_MIN = int(os.getenv("RATE_PER_MIN", "30"))      # requests per user per minute
 CONTEXT_CHARS = int(os.getenv("CONTEXT_CHARS", "20000")) # large context window sent to the AI
-MAX_TOKENS_ANSWER = 2048
-MAX_TOKENS_STUDY = 3000
+MAX_TOKENS_ANSWER = 800
+MAX_TOKENS_STUDY = 1200
 CACHE_SIZE = 200                                         # identical AI requests are answered from memory
 
 # ---- Retrieval ----
