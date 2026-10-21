@@ -4,3 +4,5 @@ python-pptx
 requests
 python-dotenv
 gunicorn
+youtube-transcript-api>=0.6.2
+psycopg2-binary>=2.9.9
